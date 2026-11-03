@@ -558,12 +558,21 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/admin/audit', { cookie: teacherJansen })).status, 403);
     assert.equal((await request('/api/admin/audit', { cookie: studentNoor })).status, 403);
     assert.equal((await request('/api/admin/users', { cookie: studentNoor })).status, 403);
+    const shortPasswordCreate = await request('/api/admin/users', {
+      method: 'POST', cookie: admin,
+      body: { email: 'http.short@demo.local', displayName: 'Too Short', role: 'teacher', password: 'Short123!xx' },
+    });
+    assert.equal(shortPasswordCreate.status, 400, 'new accounts must reject passwords shorter than 12 characters');
     const adminCreateUser = await request('/api/admin/users', {
       method: 'POST',
       cookie: admin,
       body: { email: 'http.created@demo.local', displayName: 'HTTP Created', role: 'teacher', password: 'SecurePass123!' },
     });
     assert.equal(adminCreateUser.status, 200);
+    const createdUserId = (await adminCreateUser.json() as {id:number}).id;
+    assert.equal((await request(`/api/admin/users/${createdUserId}`, {
+      method: 'PATCH', cookie: admin, body: { password: 'Short123!xx' },
+    })).status, 400, 'password changes must enforce the same minimum length');
     assert.equal((await request('/api/admin/users', { cookie: admin })).status, 200);
     assert.equal((await request('/api/admin/users', {
       method: 'POST',
