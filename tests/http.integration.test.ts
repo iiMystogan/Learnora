@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import Database from 'better-sqlite3';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -180,6 +181,33 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: teacherJansen })).status, 403);
     assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: studentNoor })).status, 403);
 
+    // Authorization must follow live class membership and assignment-class links, not stale login state.
+    const testDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      testDb.prepare('DELETE FROM class_teachers WHERE class_id=? AND teacher_id=?').run(mediaClass.id, 3);
+      assert.equal((await request(`/api/classes/${mediaClass.id}/students`, { cookie: teacherVisser })).status, 403,
+        'a teacher removed from a class must lose access immediately');
+      testDb.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,3)').run(mediaClass.id);
+
+      testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
+      assert.equal((await request('/api/assignments', { cookie: studentSara })).then(r => r.json()).then((r: any[]) =>
+        r.some(item => item.id === sharedAssignment.id)), false,
+        'a student removed from a class must no longer see its assignments');
+      assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+        method: 'POST', cookie: studentSara, body: new FormData(),
+      })).status, 403, 'a removed student must not submit to the former class assignment');
+      testDb.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,6)').run(mediaClass.id);
+
+      testDb.prepare('DELETE FROM assignment_classes WHERE assignment_id=? AND class_id=?').run(sharedAssignment.id, mediaClass.id);
+      assert.equal((await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: teacherVisser })).status, 404,
+        'a teacher must lose assignment access when the assignment is moved away from their class');
+      assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: teacherVisser })).status, 403,
+        'a teacher must lose access to the submission when its assignment is moved away from their class');
+      testDb.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)').run(sharedAssignment.id, mediaClass.id);
+    } finally {
+      testDb.close();
+    }
+
     // Visser teaches Media 3B and should be allowed to access Sara's submission.
     const visserSubmissions = await (await request('/api/submissions', { cookie: teacherVisser })).json() as Array<{ id: number }>;
     assert.equal(visserSubmissions.some((item) => item.id === submission.id), true);
@@ -238,6 +266,26 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const enrolled = await (await request(`/api/classes/${testClass.id}/students`, { cookie: teacherJansen })).json() as Array<{ email: string }>;
     assert.equal(enrolled.some((item) => item.email === 'new.student@demo.local'), true);
     assert.equal((await request('/api/classes', { cookie: studentNoor, method: 'POST', body: { name: 'Student class' } })).status, 403);
+
+    // Empty and malformed JSON must produce controlled JSON errors, never an HTML/stack response.
+    const emptyClassBody = await fetch(`${baseUrl}/api/classes`, {
+      method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '',
+    });
+    assert.equal(emptyClassBody.status, 400);
+    assert.match(emptyClassBody.headers.get('content-type') || '', /application\\/json/);
+    const malformedJson = await fetch(`${baseUrl}/api/classes`, {
+      method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '{invalid',
+    });
+    assert.equal(malformedJson.status, 400);
+    assert.match(malformedJson.headers.get('content-type') || '', /application\\/json/);
+    const emptyLogin = await fetch(`${baseUrl}/api/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '',
+    });
+    assert.equal(emptyLogin.status, 401, 'empty login body must be treated as missing credentials');
+    const primitiveJson = await fetch(`${baseUrl}/api/classes`, {
+      method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: 'null',
+    });
+    assert.equal(primitiveJson.status, 400);
 
     // Invalid and missing resource identifiers must be handled deliberately, not leak SQLite errors.
     assert.equal((await request('/api/classes/not-a-number/students', { cookie: admin })).status, 400);
