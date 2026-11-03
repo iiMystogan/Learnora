@@ -21,3 +21,9 @@ De HTTP-integratietests controleren sessie-intrekking bij rolwijziging, wachtwoo
 ## Grenzen
 
 De huidige demo-omgeving gebruikt lokale wachtwoordaccounts. Bij toekomstige externe identity-providerintegratie moet sessie-intrekking ook worden afgestemd op de provider (bijvoorbeeld refresh tokens en provider-side sessions). Deze implementatie trekt Learnora-sessies in de eigen database in.
+
+## Zelf wachtwoord wijzigen
+
+Een ingelogde gebruiker kan via `POST /api/account/password` het eigen wachtwoord wijzigen. De gebruiker moet het huidige wachtwoord opnieuw invoeren; het nieuwe wachtwoord doorloopt dezelfde lengte- en denylistcontrole als bij accountaanmaak. Het huidige wachtwoord kan niet opnieuw worden gekozen.
+
+Na een geslaagde wijziging worden alle sessies van het account ingetrokken, inclusief de huidige sessie. De sessiecookie wordt gewist en de gebruiker moet opnieuw inloggen. De wijziging wordt geregistreerd als `user.password_changed`, zonder wachtwoordgegevens in de auditlog.
