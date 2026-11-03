@@ -151,8 +151,10 @@ const canSeeAssignment = (user: any, assignmentId: number) => {
   if (user.role === 'admin') return true;
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
     JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE a.id=? AND ct.teacher_id=?`).get(assignmentId,user.id);
-  return !!db.prepare(`SELECT 1 FROM assignment_classes ac JOIN class_students cs ON cs.class_id=ac.class_id
-    WHERE ac.assignment_id=? AND cs.student_id=?`).get(assignmentId,user.id);
+  return !!db.prepare(`SELECT 1 FROM assignments a
+    JOIN assignment_classes ac ON ac.assignment_id=a.id
+    JOIN class_students cs ON cs.class_id=ac.class_id
+    WHERE a.id=? AND a.status='published' AND cs.student_id=?`).get(assignmentId,user.id);
 };
 
 
@@ -303,7 +305,12 @@ const upload=multer({storage:multer.diskStorage({
   const ext=path.extname(file.originalname).toLowerCase();
   cb(null,['.pdf','.doc','.docx','.zip'].includes(ext));
 }});
-app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),upload.single('file'),(req:any,res)=>{
+app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
+  const assignmentId=Number(req.params.id);
+  if(!Number.isSafeInteger(assignmentId)||assignmentId<=0||!canSeeAssignment(req.user,assignmentId))
+    return res.status(403).json({error:'Deze opdracht is niet beschikbaar voor jouw klas.'});
+  next();
+},upload.single('file'),(req:any,res)=>{
   const assignmentId=Number(req.params.id), file=req.file;
   if(!file) return res.status(400).json({error:'Kies een PDF-, Word- of ZIP-bestand (maximaal 20 MB).'});
   if(!canSeeAssignment(req.user,assignmentId)){fs.unlinkSync(file.path);return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});}
