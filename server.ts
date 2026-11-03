@@ -319,7 +319,7 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),uploa
 });
 app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const id=Number(req.params.id);
-  if(!canSeeSubmission(req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
+  if(!canSeeSubmission(db,req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
   const comments=String(req.body.comments||'').trim();
   if(!comments) return res.status(400).json({error:'Feedback mag niet leeg zijn.'});
   db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
@@ -330,7 +330,7 @@ app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','adm
 });
 app.get('/api/submissions/:id/download',authenticate,(req:any,res)=>{
   const id=Number(req.params.id);
-  if(!canSeeSubmission(req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
+  if(!canSeeSubmission(db,req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
   const row=db.prepare('SELECT * FROM submissions WHERE id=?').get(id) as any;
   if(!row) return res.status(404).json({error:'Bestand niet gevonden.'});
   const file=path.join(uploadDir,row.stored_filename);
