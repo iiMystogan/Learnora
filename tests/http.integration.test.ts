@@ -501,19 +501,61 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       body: { email: 'student-forbidden@demo.local', displayName: 'Forbidden', role: 'student', password: 'SecurePass123!' },
     })).status, 403);
 
+    // Unknown accounts and wrong passwords return the same public response.
+    const knownWrongPassword = await fetch(`${baseUrl}/api/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
+    });
+    const unknownAccount = await fetch(`${baseUrl}/api/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:'does-not-exist@demo.local',password:'wrong-password'}),
+    });
+    assert.equal(knownWrongPassword.status,401);
+    assert.equal(unknownAccount.status,401);
+    assert.equal(await unknownAccount.text(), await knownWrongPassword.text(),
+      'unknown and existing accounts must have the same credential error response');
+
+    const oversizedPassword = await fetch(`${baseUrl}/api/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:'admin@demo.local',password:'x'.repeat(1025)}),
+    });
+    assert.equal(oversizedPassword.status,401,'oversized password input must fail safely');
+
+    // A successful login clears the identity bucket, allowing a fresh failure window.
+    const resetIp = '198.51.100.22';
+    for (let attempt=0; attempt<9; attempt+=1) {
+      const response = await fetch(`${baseUrl}/api/login`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
+        body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
+      });
+      assert.equal(response.status,401);
+    }
+    const resetSuccess = await fetch(`${baseUrl}/api/login`, {
+      method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
+      body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
+    });
+    assert.equal(resetSuccess.status,200,'a successful login must clear the identity failure bucket');
+    for (let attempt=0; attempt<9; attempt+=1) {
+      const response = await fetch(`${baseUrl}/api/login`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
+        body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
+      });
+      assert.equal(response.status,401,'the identity bucket must start a new count after successful login');
+    }
+
     // Login throttling is scoped by client IP and normalized email, not by account alone.
     const limitedIp = '198.51.100.20';
     for (let attempt=0; attempt<10; attempt+=1) {
       const failedLogin = await fetch(`${baseUrl}/api/login`, {
         method:'POST',
-        headers:{'Content-Type':'application/json','X-Forwarded-For':limitedIp},
+        headers:{'Content-Type':'application/json','X-Real-IP':limitedIp,'X-Forwarded-For':`203.0.113.${attempt+1}`},
         body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
       });
       assert.equal(failedLogin.status,401,`failed attempt ${attempt+1} should retain the generic credential response`);
     }
     const blockedLogin = await fetch(`${baseUrl}/api/login`, {
       method:'POST',
-      headers:{'Content-Type':'application/json','X-Forwarded-For':limitedIp},
+      headers:{'Content-Type':'application/json','X-Real-IP':limitedIp},
       body:JSON.stringify({email:'ADMIN@DEMO.LOCAL',password:'Admin123!'}),
     });
     assert.equal(blockedLogin.status,429,'the next attempt must be rate limited');
@@ -522,7 +564,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
 
     const differentIpLogin = await fetch(`${baseUrl}/api/login`, {
       method:'POST',
-      headers:{'Content-Type':'application/json','X-Forwarded-For':'198.51.100.21'},
+      headers:{'Content-Type':'application/json','X-Real-IP':'198.51.100.21'},
       body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
     });
     assert.equal(differentIpLogin.status,200,
@@ -533,14 +575,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     for (let attempt=0; attempt<30; attempt+=1) {
       const failedLogin = await fetch(`${baseUrl}/api/login`, {
         method:'POST',
-        headers:{'Content-Type':'application/json','X-Forwarded-For':ipOnly},
+        headers:{'Content-Type':'application/json','X-Real-IP':ipOnly},
         body:JSON.stringify({email:`unknown-${attempt}@demo.local`,password:'wrong-password'}),
       });
       assert.equal(failedLogin.status,401,`IP attempt ${attempt+1} should be accepted before the ceiling`);
     }
     const ipBlockedLogin = await fetch(`${baseUrl}/api/login`, {
       method:'POST',
-      headers:{'Content-Type':'application/json','X-Forwarded-For':ipOnly},
+      headers:{'Content-Type':'application/json','X-Real-IP':ipOnly},
       body:JSON.stringify({email:'another-unknown@demo.local',password:'wrong-password'}),
     });
     assert.equal(ipBlockedLogin.status,429,'the IP-wide ceiling must apply across different email addresses');
