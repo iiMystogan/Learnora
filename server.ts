@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS audit_logs (
  details TEXT DEFAULT '',
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS sessions (
+ jti TEXT PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ expires_at INTEGER NOT NULL,
+ revoked_at TEXT,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 `);
 
 const count = (sql: string) => (db.prepare(sql).get() as any).n as number;
@@ -134,7 +142,14 @@ const authenticate = (req: any, res: any, next: any) => {
   const token = req.cookies.session;
   if (!token) return res.status(401).json({ error: 'Log eerst in.' });
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as SessionUser;
+    const payload = jwt.verify(token, JWT_SECRET) as SessionUser & { jti?: string };
+    if (!Number.isSafeInteger(payload.id) || typeof payload.jti !== 'string' || !payload.jti) {
+      return res.status(401).json({ error: 'Ongeldige sessie. Log opnieuw in.' });
+    }
+    const session = db.prepare(`SELECT 1 FROM sessions
+      WHERE jti=? AND user_id=? AND revoked_at IS NULL AND expires_at>?`)
+      .get(payload.jti, payload.id, Math.floor(Date.now() / 1000));
+    if (!session) return res.status(401).json({ error: 'Sessie is beëindigd. Log opnieuw in.' });
     const user = db.prepare('SELECT id,email,display_name as displayName,role,active FROM users WHERE id=?').get(payload.id) as any;
     if (!user || !user.active) return res.status(401).json({ error: 'Account is niet actief.' });
     req.user = user;
@@ -165,11 +180,30 @@ app.post('/api/login',(req,res) => {
   if (!user || !user.active || !bcrypt.compareSync(password,user.password_hash))
     return res.status(401).json({error:'E-mailadres of wachtwoord klopt niet.'});
   db.prepare('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?').run(user.id);
-  const token = jwt.sign({id:user.id},JWT_SECRET,{expiresIn:'8h'});
+  const jti = crypto.randomUUID();
+  const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
+  db.prepare('DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL').run(Math.floor(Date.now() / 1000));
+  db.prepare('INSERT INTO sessions(jti,user_id,expires_at) VALUES(?,?,?)').run(jti,user.id,expiresAt);
+  const token = jwt.sign({id:user.id,jti},JWT_SECRET,{expiresIn:'8h'});
   res.cookie('session',token,{httpOnly:true,secure:isProduction,sameSite:'lax',maxAge:8*60*60*1000,path:'/'});
   res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role}});
 });
-app.post('/api/logout',(req,res)=>{res.clearCookie('session',{path:'/'});res.json({success:true});});
+app.post('/api/logout',(req,res)=>{
+  const token = req.cookies.session;
+  if (token) {
+    try {
+      const payload = jwt.verify(token,JWT_SECRET,{ignoreExpiration:true}) as SessionUser & {jti?:string};
+      if (Number.isSafeInteger(payload.id) && typeof payload.jti === 'string' && payload.jti) {
+        db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE jti=? AND user_id=? AND revoked_at IS NULL')
+          .run(payload.jti,payload.id);
+      }
+    } catch {
+      // Invalid or tampered tokens are simply cleared; they cannot identify a trusted session.
+    }
+  }
+  res.clearCookie('session',{path:'/'});
+  res.json({success:true});
+});
 app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.displayName,role:req.user.role}}));
 
 app.get('/api/dashboard',authenticate,(req:any,res)=>{
