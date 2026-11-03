@@ -535,13 +535,18 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
     });
     assert.equal(resetSuccess.status,200,'a successful login must clear the identity failure bucket');
-    for (let attempt=0; attempt<9; attempt+=1) {
+    for (let attempt=0; attempt<10; attempt+=1) {
       const response = await fetch(`${baseUrl}/api/login`, {
         method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
         body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
       });
       assert.equal(response.status,401,'the identity bucket must start a new count after successful login');
     }
+    const resetBucketBlocked = await fetch(`${baseUrl}/api/login`, {
+      method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
+      body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
+    });
+    assert.equal(resetBucketBlocked.status,429,'the reset identity bucket must block only after its new tenth failure');
 
     // Login throttling is scoped by client IP and normalized email, not by account alone.
     const limitedIp = '198.51.100.20';
