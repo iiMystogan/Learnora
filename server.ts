@@ -307,7 +307,7 @@ app.get('/api/submissions',authenticate,(req:any,res)=>{
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 
-const uploadDir=path.join(__dirname,'uploads','submissions');
+const uploadDir=process.env.UPLOAD_DIR || path.join(__dirname,'uploads','submissions');
 fs.mkdirSync(uploadDir,{recursive:true});
 const upload=multer({storage:multer.diskStorage({
   destination:(_req,_file,cb)=>cb(null,uploadDir),
