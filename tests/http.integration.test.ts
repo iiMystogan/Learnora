@@ -221,6 +221,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       testDb.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,3)').run(mediaClass.id);
 
       testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
+      const removedStudentSubmissionsResponse = await request('/api/submissions', { cookie: studentSara });
+      const removedStudentSubmissions = await removedStudentSubmissionsResponse.json() as Array<{ id: number }>;
+      assert.equal(removedStudentSubmissions.some(item => item.id === submission.id), false,
+        'a student removed from a class must no longer see class-scoped submission listings');
       const removedStudentAssignmentsResponse = await request('/api/assignments', { cookie: studentSara });
       const removedStudentAssignments = await removedStudentAssignmentsResponse.json() as Array<{ id: number }>;
       assert.equal(removedStudentAssignments.some(item => item.id === sharedAssignment.id), false,
@@ -231,6 +235,12 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       testDb.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,6)').run(mediaClass.id);
 
       testDb.prepare('DELETE FROM assignment_classes WHERE assignment_id=? AND class_id=?').run(sharedAssignment.id, mediaClass.id);
+      const movedStudentAssignments = await (await request('/api/assignments', { cookie: studentSara })).json() as Array<{ id: number }>;
+      assert.equal(movedStudentAssignments.some(item => item.id === sharedAssignment.id), false,
+        'a student must lose access when an assignment is moved out of their class');
+      assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+        method: 'POST', cookie: studentSara, body: new FormData(),
+      })).status, 403, 'a student cannot submit after an assignment is moved away from their class');
       assert.equal((await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: teacherVisser })).status, 404,
         'a teacher must lose assignment access when the assignment is moved away from their class');
       assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: teacherVisser })).status, 403,
@@ -337,6 +347,12 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(createClass.status, 200);
     const testClass = await createClass.json() as { id: number };
     assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: teacherVisser })).status, 403);
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: admin })).status, 200,
+      'admin can inspect any existing class');
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, {
+      method: 'POST', cookie: admin,
+      body: { email: 'student.noor@demo.local', displayName: 'Noor de Vries' },
+    })).status, 200, 'admin can enroll an existing student in any class');
     assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: studentNoor })).status, 403);
     assert.equal((await request(`/api/classes/${testClass.id}/students`, {
       method: 'POST',
@@ -436,6 +452,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(noorDashboard.assignments.some((item) => item.title === 'Portfolio media'), false);
 
     // Admin retains global access and admin-only user/audit operations.
+    assert.equal((await request('/api/dashboard', { cookie: admin })).status, 200, 'admin dashboard must be available');
     assert.equal((await request('/api/admin/overview', { cookie: admin })).status, 200);
     assert.equal((await request('/api/admin/overview', { cookie: teacherJansen })).status, 403);
     assert.equal((await request('/api/admin/overview', { cookie: studentNoor })).status, 403);
