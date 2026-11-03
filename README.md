@@ -98,6 +98,10 @@ The current local demo is not yet wired to Entra ID and does not imply that the 
 
 See [security/NETWORKING.md](security/NETWORKING.md) for the current private-network inventory, internal-service trust rules, client-IP rate-limit configuration and hosting-portability requirements. Review it before adding services or changing the hosting provider.
 
+## Sessie-invalidatie
+
+Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle bestaande sessies van het betreffende account ingetrokken. De beheerder kan accounts beheren via de gebruikerspagina. Zie [security/SESSIONS.md](security/SESSIONS.md) voor details.
+
 ## CSRF-bescherming
 
 Alle API-verzoeken die gegevens wijzigen (zoals POST, PUT, PATCH en DELETE) vereisen een geldig, ondertekend CSRF-token. De frontend haalt dit token op via `GET /api/csrf` en stuurt het bij mutaties mee in de header `X-CSRF-Token`. Het token moet overeenkomen met de host-only `learnora_csrf`-cookie. De handtekening wordt met `JWT_SECRET` gecontroleerd; het token wordt niet als authenticatiemiddel gebruikt.
