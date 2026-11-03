@@ -1,1 +1,58 @@
+# Xerte Education Platform — demo
 
+This branch contains a demonstrator for a class-based assignment and submission workflow. It is intended for local review and discussion with Graafschap College ICT.
+
+## Run locally
+
+Requirements: Node.js 20+ and npm.
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. The SQLite database is created automatically as `database.sqlite`; uploaded files are stored under `uploads/submissions`.
+
+## Demo accounts
+
+| Role | Email | Password |
+|---|---|---|
+| Administrator | admin@demo.local | Admin123! |
+| Teacher | docent.jansen@demo.local | Teacher123! |
+| Teacher | docent.visser@demo.local | Teacher123! |
+| Student | student.noor@demo.local | Student123! |
+| Student | student.liam@demo.local | Student123! |
+| Student | student.sara@demo.local | Student123! |
+
+The first start seeds these demo accounts and sample classes/assignments only when the users table is empty. Do not use these credentials outside a local demo.
+
+## What is demonstrated
+
+- Separate administrator, teacher and student accounts.
+- Teachers are linked to specific classes; students are enrolled in classes.
+- Teachers see submissions only for classes they teach. Students see only their own submissions and assignments for their enrolled classes.
+- Assignments can be targeted to one or more classes and have instructions and deadlines.
+- Students upload PDF, DOC, DOCX or ZIP files (maximum 20 MB) and can replace their submission.
+- Teachers can download work and record feedback and a grade/status.
+- Administrator overview, account creation and an activity log.
+- Server-side permission checks for class, assignment, submission and download routes.
+
+## Important: demo, not production
+
+This is a functional prototype, not an approved school service. It has not had a security audit, accessibility review, load test or AVG/privacy assessment. File validation currently relies on file extensions, and the demo does not yet include production-grade rate limiting, malware scanning, retention policies, backups, CSRF hardening, monitoring or deployment configuration. Use synthetic data only. Do not upload real student work or personal data.
+
+Before any real deployment, involve ICT/security/privacy stakeholders and complete a security and privacy review. Set a strong `JWT_SECRET` (at least 32 characters) and `NODE_ENV=production`; production startup refuses a missing/weak JWT secret. Configure HTTPS, secure file storage, backup/restore, logging, malware scanning, rate limiting and retention before accepting real data.
+
+## Planned Entra ID transition
+
+Authentication is deliberately isolated behind the session/login endpoints. A future Microsoft Entra ID OpenID Connect integration should:
+1. Authenticate the user with the Graafschap tenant.
+2. Map the immutable Entra tenant/object identity to an internal `users` record (do not use email as the permanent identifier).
+3. Keep the platform's role, class membership, assignment and submission authorization in this application's database.
+4. Remove local password login and local account provisioning for production, with controlled admin/invitation provisioning.
+
+The current local demo is not yet wired to Entra ID and does not imply that the school has approved an app registration.
+
+## Branch
+
+Demo work is isolated on `demo/education-platform`; the existing `main` branch has not been changed.
