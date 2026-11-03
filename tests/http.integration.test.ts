@@ -272,12 +272,12 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '',
     });
     assert.equal(emptyClassBody.status, 400);
-    assert.match(emptyClassBody.headers.get('content-type') || '', /application\\/json/);
+    assert.ok((emptyClassBody.headers.get('content-type') || '').includes('application/json'));
     const malformedJson = await fetch(`${baseUrl}/api/classes`, {
       method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '{invalid',
     });
     assert.equal(malformedJson.status, 400);
-    assert.match(malformedJson.headers.get('content-type') || '', /application\\/json/);
+    assert.ok((malformedJson.headers.get('content-type') || '').includes('application/json'));
     const emptyLogin = await fetch(`${baseUrl}/api/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '',
     });
