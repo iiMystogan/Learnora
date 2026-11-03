@@ -102,6 +102,10 @@ See [security/NETWORKING.md](security/NETWORKING.md) for the current private-net
 
 Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle bestaande sessies van het betreffende account ingetrokken. De beheerder kan accounts beheren via de gebruikerspagina. Zie [security/SESSIONS.md](security/SESSIONS.md) voor details.
 
+## Wachtwoordbeleid
+
+Nieuwe accounts en wachtwoordwijzigingen vereisen minimaal 12 tekens en maximaal 1024 UTF-8-bytes. Lange wachtwoordzinnen zijn toegestaan; er is geen verplichte combinatie van hoofdletters, cijfers of symbolen. Bestaande demo-accounts behouden hun huidige wachtwoord totdat dat wordt gewijzigd. Zie [security/PASSWORDS.md](security/PASSWORDS.md).
+
 ## CSRF-bescherming
 
 Alle API-verzoeken die gegevens wijzigen (zoals POST, PUT, PATCH en DELETE) vereisen een geldig, ondertekend CSRF-token. De frontend haalt dit token op via `GET /api/csrf` en stuurt het bij mutaties mee in de header `X-CSRF-Token`. Het token moet overeenkomen met de host-only `learnora_csrf`-cookie. De handtekening wordt met `JWT_SECRET` gecontroleerd; het token wordt niet als authenticatiemiddel gebruikt.
