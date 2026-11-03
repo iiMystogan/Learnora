@@ -100,7 +100,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
 
     // Authentication endpoints: invalid credentials, current user and logout cookie handling.
     assert.equal((await request('/api/login', { method: 'POST', body: { email: 'admin@demo.local', password: 'incorrect-password' } })).status, 401);
-    const admin = await login('admin@demo.local', 'Admin123!');
+    let admin = await login('admin@demo.local', 'Admin123!');
+    const secondAdminSession = await login('admin@demo.local', 'Admin123!');
     const currentUser = await request('/api/me', { cookie: admin });
     assert.equal(currentUser.status, 200);
     assert.equal(((await currentUser.json()) as { user: { role: string } }).user.role, 'admin');
@@ -108,6 +109,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(logout.status, 200);
     assert.match(logout.headers.get('set-cookie') || '', /session=;/);
     assert.equal((await request('/api/me')).status, 401);
+    assert.equal((await request('/api/me', { cookie: admin })).status, 401,
+      'a logged-out JWT must be rejected even when the original cookie is replayed');
+    assert.equal((await request('/api/me', { cookie: secondAdminSession })).status, 200,
+      'logging out one session must not invalidate another active session');
+    admin = await login('admin@demo.local', 'Admin123!');
     const teacherJansen = await login('docent.jansen@demo.local', 'Teacher123!');
     const teacherVisser = await login('docent.visser@demo.local', 'Teacher123!');
     const studentNoor = await login('student.noor@demo.local', 'Student123!');
