@@ -104,7 +104,7 @@ Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle besta
 
 ## Wachtwoordbeleid
 
-Nieuwe accounts en wachtwoordwijzigingen vereisen minimaal 12 tekens en maximaal 1024 UTF-8-bytes. Lange wachtwoordzinnen zijn toegestaan; er is geen verplichte combinatie van hoofdletters, cijfers of symbolen. Bestaande demo-accounts behouden hun huidige wachtwoord totdat dat wordt gewijzigd. Zie [security/PASSWORDS.md](security/PASSWORDS.md).
+Nieuwe accounts en wachtwoordwijzigingen vereisen minimaal 12 tekens en maximaal 1024 UTF-8-bytes. Lange wachtwoordzinnen zijn toegestaan; er is geen verplichte combinatie van hoofdletters, cijfers of symbolen. Een lokale denylist blokkeert daarnaast een aantal bekende, veelgebruikte wachtwoorden en eenvoudige patronen. Bestaande demo-accounts behouden hun huidige wachtwoord totdat dat wordt gewijzigd. Zie [security/PASSWORDS.md](security/PASSWORDS.md).
 
 ## CSRF-bescherming
 
