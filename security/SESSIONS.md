@@ -6,7 +6,7 @@ Een accountwijziging mag geen bestaande ingelogde sessies laten voortbestaan met
 
 ## Gedrag
 
-De beheerder kan via `PATCH /api/admin/users/:id` de rol, accountstatus en/of het wachtwoord aanpassen. Alleen expliciet opgegeven velden worden gewijzigd. Rollen zijn beperkt tot `admin`, `teacher` en `student`; accountstatus moet een boolean zijn. Een nieuw wachtwoord moet 8 tot 1024 UTF-8-bytes bevatten.
+De beheerder kan via `PATCH /api/admin/users/:id` de rol, accountstatus en/of het wachtwoord aanpassen. Alleen expliciet opgegeven velden worden gewijzigd. Rollen zijn beperkt tot `admin`, `teacher` en `student`; accountstatus moet een boolean zijn. Een nieuw wachtwoord moet minimaal 12 tekens en maximaal 1024 UTF-8-bytes bevatten; zie [Wachtwoordbeleid](./PASSWORDS.md).
 
 Na iedere daadwerkelijke wijziging worden binnen dezelfde SQLite-transactie alle actieve sessies van het doelaccount ingetrokken. De huidige sessie van de beheerder wordt eveneens ingetrokken als die diens eigen wachtwoord wijzigt; de server wist dan de sessiecookie en de frontend vraagt opnieuw om in te loggen.
 
