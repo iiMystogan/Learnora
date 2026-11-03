@@ -64,6 +64,18 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
   const getOutput = () => output.join('');
 
   const csrf = { token: '', cookie: '' };
+  const fetchWithCsrf = (url: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    const method = (init.method || 'GET').toUpperCase();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const cookieHeader = headers.get('Cookie') || '';
+      if (!cookieHeader.split(';').some((part) => part.trim().startsWith('learnora_csrf='))) {
+        headers.set('Cookie', [cookieHeader, csrf.cookie].filter(Boolean).join('; '));
+      }
+      headers.set('X-CSRF-Token', csrf.token);
+    }
+    return fetch(url, { ...init, headers });
+  };
 
   const request = async (
     route: string,
@@ -104,7 +116,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
   try {
     await waitForApi(baseUrl, child, getOutput);
 
-    const csrfResponse = await fetch(`${baseUrl}/api/csrf`);
+    const csrfResponse = await fetchWithCsrf(`${baseUrl}/api/csrf`);
     assert.equal(csrfResponse.status, 200, 'the CSRF bootstrap endpoint must be available');
     csrf.token = ((await csrfResponse.json()) as { csrfToken: string }).csrfToken;
     const csrfCookie = csrfResponse.headers.get('set-cookie');
@@ -302,7 +314,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
           signalUploadStarted();
         },
       });
-      const raceUpload = fetch(`${baseUrl}/api/assignments/${sharedAssignment.id}/submit`, {
+      const raceUpload = fetchWithCsrf(`${baseUrl}/api/assignments/${sharedAssignment.id}/submit`, {
         method: 'POST',
         headers: {
           Cookie: [studentSara, csrf.cookie].join('; '),
@@ -419,21 +431,21 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/classes', { cookie: studentNoor, method: 'POST', body: { name: 'Student class' } })).status, 403);
 
     // Empty and malformed JSON must produce controlled JSON errors, never an HTML/stack response.
-    const emptyClassBody = await fetch(`${baseUrl}/api/classes`, {
+    const emptyClassBody = await fetchWithCsrf(`${baseUrl}/api/classes`, {
       method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '',
     });
     assert.equal(emptyClassBody.status, 400);
     assert.ok((emptyClassBody.headers.get('content-type') || '').includes('application/json'));
-    const malformedJson = await fetch(`${baseUrl}/api/classes`, {
+    const malformedJson = await fetchWithCsrf(`${baseUrl}/api/classes`, {
       method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: '{invalid',
     });
     assert.equal(malformedJson.status, 400);
     assert.ok((malformedJson.headers.get('content-type') || '').includes('application/json'));
-    const emptyLogin = await fetch(`${baseUrl}/api/login`, {
+    const emptyLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '',
     });
     assert.equal(emptyLogin.status, 401, 'empty login body must be treated as missing credentials');
-    const primitiveJson = await fetch(`${baseUrl}/api/classes`, {
+    const primitiveJson = await fetchWithCsrf(`${baseUrl}/api/classes`, {
       method: 'POST', headers: { Cookie: admin, 'Content-Type': 'application/json' }, body: 'null',
     });
     assert.equal(primitiveJson.status, 400);
@@ -537,11 +549,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     })).status, 403);
 
     // Unknown accounts and wrong passwords return the same public response.
-    const knownWrongPassword = await fetch(`${baseUrl}/api/login`, {
+    const knownWrongPassword = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
     });
-    const unknownAccount = await fetch(`${baseUrl}/api/login`, {
+    const unknownAccount = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:'does-not-exist@demo.local',password:'wrong-password'}),
     });
@@ -550,7 +562,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(await unknownAccount.text(), await knownWrongPassword.text(),
       'unknown and existing accounts must have the same credential error response');
 
-    const oversizedPassword = await fetch(`${baseUrl}/api/login`, {
+    const oversizedPassword = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:'admin@demo.local',password:'x'.repeat(1025)}),
     });
@@ -559,25 +571,25 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     // A successful login clears the identity bucket, allowing a fresh failure window.
     const resetIp = '198.51.100.22';
     for (let attempt=0; attempt<9; attempt+=1) {
-      const response = await fetch(`${baseUrl}/api/login`, {
+      const response = await fetchWithCsrf(`${baseUrl}/api/login`, {
         method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
         body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
       });
       assert.equal(response.status,401);
     }
-    const resetSuccess = await fetch(`${baseUrl}/api/login`, {
+    const resetSuccess = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
       body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
     });
     assert.equal(resetSuccess.status,200,'a successful login must clear the identity failure bucket');
     for (let attempt=0; attempt<10; attempt+=1) {
-      const response = await fetch(`${baseUrl}/api/login`, {
+      const response = await fetchWithCsrf(`${baseUrl}/api/login`, {
         method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
         body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
       });
       assert.equal(response.status,401,'the identity bucket must start a new count after successful login');
     }
-    const resetBucketBlocked = await fetch(`${baseUrl}/api/login`, {
+    const resetBucketBlocked = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST', headers:{'Content-Type':'application/json','X-Real-IP':resetIp},
       body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
     });
@@ -586,14 +598,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     // Login throttling is scoped by client IP and normalized email, not by account alone.
     const limitedIp = '198.51.100.20';
     for (let attempt=0; attempt<10; attempt+=1) {
-      const failedLogin = await fetch(`${baseUrl}/api/login`, {
+      const failedLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
         method:'POST',
         headers:{'Content-Type':'application/json','X-Real-IP':limitedIp,'X-Forwarded-For':`203.0.113.${attempt+1}`},
         body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
       });
       assert.equal(failedLogin.status,401,`failed attempt ${attempt+1} should retain the generic credential response`);
     }
-    const blockedLogin = await fetch(`${baseUrl}/api/login`, {
+    const blockedLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Real-IP':limitedIp},
       body:JSON.stringify({email:'ADMIN@DEMO.LOCAL',password:'Admin123!'}),
@@ -602,7 +614,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.ok(Number(blockedLogin.headers.get('retry-after'))>0,'429 must include a Retry-After value');
     assert.match(await blockedLogin.text(),/Te veel mislukte inlogpogingen/);
 
-    const differentIpLogin = await fetch(`${baseUrl}/api/login`, {
+    const differentIpLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Real-IP':'198.51.100.21'},
       body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
@@ -613,14 +625,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     // The independent IP ceiling prevents an attacker rotating email addresses from bypassing throttling.
     const ipOnly='198.51.100.30';
     for (let attempt=0; attempt<30; attempt+=1) {
-      const failedLogin = await fetch(`${baseUrl}/api/login`, {
+      const failedLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
         method:'POST',
         headers:{'Content-Type':'application/json','X-Real-IP':ipOnly},
         body:JSON.stringify({email:`unknown-${attempt}@demo.local`,password:'wrong-password'}),
       });
       assert.equal(failedLogin.status,401,`IP attempt ${attempt+1} should be accepted before the ceiling`);
     }
-    const ipBlockedLogin = await fetch(`${baseUrl}/api/login`, {
+    const ipBlockedLogin = await fetchWithCsrf(`${baseUrl}/api/login`, {
       method:'POST',
       headers:{'Content-Type':'application/json','X-Real-IP':ipOnly},
       body:JSON.stringify({email:'another-unknown@demo.local',password:'wrong-password'}),
