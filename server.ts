@@ -346,6 +346,31 @@ app.post('/api/logout',(req,res)=>{
 });
 app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.displayName,role:req.user.role}}));
 
+app.post('/api/account/password',authenticate,(req:any,res)=>{
+  const currentPassword=req.body.currentPassword;
+  const newPassword=req.body.newPassword;
+  if(typeof currentPassword!=='string'||!currentPassword||Buffer.byteLength(currentPassword,'utf8')>1024)
+    return res.status(400).json({error:'Vul je huidige wachtwoord in.'});
+  const passwordError=validatePassword(newPassword);
+  if(passwordError) return res.status(400).json({error:passwordError});
+
+  const account=db.prepare('SELECT password_hash FROM users WHERE id=? AND active=1').get(req.user.id) as {password_hash:string}|undefined;
+  if(!account||!bcrypt.compareSync(currentPassword,account.password_hash))
+    return res.status(400).json({error:'Het huidige wachtwoord klopt niet.'});
+  if(bcrypt.compareSync(newPassword,account.password_hash))
+    return res.status(400).json({error:'Kies een nieuw wachtwoord dat verschilt van je huidige wachtwoord.'});
+
+  const updatePassword=db.transaction(()=>{
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(bcrypt.hashSync(newPassword,10),req.user.id);
+    db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(req.user.id);
+    audit(req.user.id,'user.password_changed','user',req.user.id,'self-service');
+  });
+  updatePassword();
+  res.clearCookie('session',{path:'/'});
+  res.setHeader('Cache-Control','no-store');
+  res.json({success:true,sessionsRevoked:true,reauthenticate:true});
+});
+
 app.get('/api/dashboard',authenticate,(req:any,res)=>{
   const u=req.user;
   if(u.role==='student'){
