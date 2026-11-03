@@ -239,6 +239,30 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(enrolled.some((item) => item.email === 'new.student@demo.local'), true);
     assert.equal((await request('/api/classes', { cookie: studentNoor, method: 'POST', body: { name: 'Student class' } })).status, 403);
 
+    // Invalid and missing resource identifiers must be handled deliberately, not leak SQLite errors.
+    assert.equal((await request('/api/classes/not-a-number/students', { cookie: admin })).status, 400);
+    assert.equal((await request('/api/classes/999999/students', { cookie: admin })).status, 404);
+    assert.equal((await request('/api/classes/999999/students', {
+      method: 'POST', cookie: admin,
+      body: { email: 'ghost.student@demo.local', displayName: 'Ghost Student' },
+    })).status, 404);
+    assert.equal((await request('/api/assignments/not-a-number/progress', { cookie: admin })).status, 400);
+    assert.equal((await request('/api/assignments/999999/progress', { cookie: admin })).status, 404);
+
+    // Invalid and duplicate class references must return 400 instead of a database constraint error.
+    assert.equal((await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'Duplicate class IDs', classIds: [ictClass.id, ictClass.id] },
+    })).status, 400);
+    assert.equal((await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'Missing class ID', classIds: [999999] },
+    })).status, 400);
+    assert.equal((await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'Malformed class ID', classIds: ['not-a-number'] },
+    })).status, 400);
+
     // Feedback validation and student write access.
     assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
       method: 'POST',
