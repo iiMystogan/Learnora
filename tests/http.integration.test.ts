@@ -351,7 +351,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       'admin can inspect any existing class');
     assert.equal((await request(`/api/classes/${testClass.id}/students`, {
       method: 'POST', cookie: admin,
-      body: { email: 'student.noor@demo.local', displayName: 'Noor de Vries' },
+      body: { email: 'admin.enrolled@demo.local', displayName: 'Admin Enrolled Student' },
     })).status, 200, 'admin can enroll an existing student in any class');
     assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: studentNoor })).status, 403);
     assert.equal((await request(`/api/classes/${testClass.id}/students`, {
