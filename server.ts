@@ -162,8 +162,14 @@ const audit = (actor: number, action: string, type: string, id: number|null, det
   db.prepare('INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)').run(actor,action,type,id,details);
 const canTeachClass = (teacherId: number, classId: number) =>
   !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=?').get(teacherId,classId);
+const parsePositiveId = (value: unknown): number | null => {
+  const id = typeof value === 'number' ? value : typeof value === 'string' && /^\\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+};
+const classExists = (classId: number) =>
+  !!db.prepare('SELECT 1 FROM classes WHERE id=?').get(classId);
 const canSeeAssignment = (user: any, assignmentId: number) => {
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=?').get(assignmentId);
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
     JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE a.id=? AND ct.teacher_id=?`).get(assignmentId,user.id);
   return !!db.prepare(`SELECT 1 FROM assignments a
@@ -271,13 +277,17 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
   try { res.json({id:create()}); } catch { res.status(400).json({error:'Aanmaken van de klas is niet gelukt.'}); }
 });
 app.get('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const id=Number(req.params.id);
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig klasnummer.'});
+  if(!classExists(id)) return res.status(404).json({error:'Klas niet gevonden.'});
   if(req.user.role==='teacher'&&!canTeachClass(req.user.id,id)) return res.status(403).json({error:'Deze klas hoort niet bij jouw account.'});
   const students=db.prepare(`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? ORDER BY u.display_name`).all(id);
   res.json(students);
 });
 app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const classId=Number(req.params.id);
+  const classId=parsePositiveId(req.params.id);
+  if(classId===null) return res.status(400).json({error:'Ongeldig klasnummer.'});
+  if(!classExists(classId)) return res.status(404).json({error:'Klas niet gevonden.'});
   if(req.user.role==='teacher'&&!canTeachClass(req.user.id,classId)) return res.status(403).json({error:'Geen toegang tot deze klas.'});
   const email=String(req.body.email||'').trim().toLowerCase(), name=String(req.body.displayName||'').trim();
   if(!email||!name) return res.status(400).json({error:'Naam en e-mailadres zijn verplicht.'});
@@ -305,13 +315,19 @@ app.get('/api/assignments',authenticate,(req:any,res)=>{
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const title=String(req.body.title||'').trim(), classIds=Array.isArray(req.body.classIds)?req.body.classIds.map(Number):[];
+  const title=String(req.body.title||'').trim();
+  const rawClassIds=Array.isArray(req.body.classIds)?req.body.classIds:[];
+  const classIds=rawClassIds.map(parsePositiveId);
   if(!title||!classIds.length) return res.status(400).json({error:'Titel en minimaal één klas zijn verplicht.'});
-  if(req.user.role==='teacher'&&classIds.some((id:number)=>!canTeachClass(req.user.id,id))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
+  if(classIds.some((id:number|null)=>id===null)) return res.status(400).json({error:'Een of meer klasnummers zijn ongeldig.'});
+  const validClassIds=classIds as number[];
+  if(new Set(validClassIds).size!==validClassIds.length) return res.status(400).json({error:'Een klas mag maar één keer worden geselecteerd.'});
+  if(validClassIds.some((id:number)=>!classExists(id))) return res.status(400).json({error:'Een of meer geselecteerde klassen bestaan niet.'});
+  if(req.user.role==='teacher'&&validClassIds.some((id:number)=>!canTeachClass(req.user.id,id))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)')
       .run(title,String(req.body.description||''),String(req.body.instructions||''),req.body.deadline||null,req.user.id).lastInsertRowid as number;
-    const add=db.prepare('INSERT INTO assignment_classes VALUES(?,?)'); classIds.forEach((classId:number)=>add.run(id,classId));
+    const add=db.prepare('INSERT INTO assignment_classes VALUES(?,?)'); validClassIds.forEach((classId:number)=>add.run(id,classId));
     audit(req.user.id,'assignment.created','assignment',id,title); return id;
   });
   res.json({id:create()});
@@ -323,7 +339,8 @@ app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(r
 });
 
 app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const id=Number(req.params.id);
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
   if(!canSeeAssignment(req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
   const rows=db.prepare(`SELECT u.id student_id,u.display_name student_name,u.email student_email,c.name class_name,
     s.id submission_id,s.submitted_at,f.status review_status,f.grade
