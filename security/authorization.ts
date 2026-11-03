@@ -95,3 +95,33 @@ export function canDeleteAssignment(
     `).get(assignmentId, user.id)
   );
 }
+
+
+/**
+ * Students may submit only to published assignments linked to one of
+ * their own classes. This check is also used before Multer accepts a file.
+ */
+export function canSubmitAssignment(
+  db: AuthorizationDb,
+  user: AuthorizationUser,
+  assignmentId: number
+): boolean {
+  if (user.role !== 'student') {
+    return false;
+  }
+
+  return Boolean(
+    db.prepare(`
+      SELECT 1
+      FROM assignments a
+      INNER JOIN assignment_classes ac
+        ON ac.assignment_id = a.id
+      INNER JOIN class_students cs
+        ON cs.class_id = ac.class_id
+       AND cs.student_id = ?
+      WHERE a.id = ?
+        AND a.status = 'published'
+      LIMIT 1
+    `).get(user.id, assignmentId)
+  );
+}
