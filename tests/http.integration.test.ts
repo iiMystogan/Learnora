@@ -55,6 +55,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       DATABASE_PATH: path.join(tempDir, 'test.sqlite'),
       UPLOAD_DIR: path.join(tempDir, 'uploads'),
       JWT_SECRET: 'http-integration-test-secret-at-least-32-characters',
+      TRUSTED_CLIENT_IP_HEADER: 'x-real-ip',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
