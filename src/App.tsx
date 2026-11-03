@@ -5,8 +5,12 @@ type User={id:number;email:string;displayName:string;role:'admin'|'teacher'|'stu
 type ClassRow={id:number;name:string;year_group?:string;student_count?:number;teachers?:string};
 type Assignment={id:number;title:string;description:string;instructions:string;deadline:string;class_names?:string;class_name?:string;submission_id?:number;submitted_at?:string;review_status?:string;comments?:string;grade?:string;submission_count?:number};
 type Submission={id:number;assignment_id:number;assignment_title:string;student_name:string;student_email:string;class_name:string;original_filename:string;file_size:number;submitted_at:string;comments?:string;grade?:string;review_status?:string};
+let csrfToken = '';
 const api=async(url:string,options:RequestInit={})=>{
- const response=await fetch(url,{...options,credentials:'include'});
+ const method=(options.method||'GET').toUpperCase();
+ const headers=new Headers(options.headers);
+ if(!['GET','HEAD','OPTIONS'].includes(method) && csrfToken) headers.set('X-CSRF-Token',csrfToken);
+ const response=await fetch(url,{...options,headers,credentials:'include'});
  const data=await response.json().catch(()=>({}));
  if(!response.ok)throw new Error(data.error||'Er ging iets mis.');
  return data;
@@ -33,7 +37,7 @@ export default function App(){
   setClasses(c);setAssignments(a);setSubmissions(s);
   if(u.role==='admin'){const [o,us]=await Promise.all([api('/api/admin/overview'),api('/api/admin/users')]);setOverview(o);setUsers(us);}
  };
- useEffect(()=>{api('/api/me').then((r:any)=>{setUser(r.user);return refresh(r.user)}).catch(()=>{}).finally(()=>setReady(true));},[]);
+ useEffect(()=>{(async()=>{try{const csrf=await api('/api/csrf');csrfToken=csrf.csrfToken;const r=await api('/api/me');setUser(r.user);await refresh(r.user);}catch{}finally{setReady(true)}})();},[]);
  const notify=(message:string)=>{setToast(message);setTimeout(()=>setToast(''),3200)};
  const login=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError('');try{const r=await api('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:loginEmail,password})});setUser(r.user);setPage('overview');await refresh(r.user);}catch(e:any){setError(e.message)}finally{setBusy(false)}};
  const logout=async()=>{await api('/api/logout',{method:'POST'});setUser(null);setPage('overview');};
