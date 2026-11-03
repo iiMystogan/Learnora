@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
-import { isIP } from 'node:net';
+import { resolveClientIpAddress } from './security/client-ip.ts';
 import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,9 +22,12 @@ if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 
 const JWT_SECRET = process.env.JWT_SECRET || 'local-demo-only-change-this-secret-before-deployment';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-user-password',10);
 const app = express();
-// Railway's public HTTP edge overwrites X-Real-IP. Do not trust X-Forwarded-For:
-// Railway does not guarantee a fixed proxy hop count. Private-network traffic must not be
-// exposed to untrusted callers because it bypasses the public edge's header sanitization.
+// Forwarded IP headers are ignored unless an operator explicitly configures a trusted ingress header.
+// Never enable this when untrusted services can reach the application listener directly.
+const TRUSTED_CLIENT_IP_HEADER = (process.env.TRUSTED_CLIENT_IP_HEADER || '').trim().toLowerCase();
+if (TRUSTED_CLIENT_IP_HEADER && !/^[a-z0-9-]+$/.test(TRUSTED_CLIENT_IP_HEADER)) {
+  throw new Error('TRUSTED_CLIENT_IP_HEADER must be a simple HTTP header name.');
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -234,12 +237,17 @@ app.post('/api/login',(req:any,res:any) => {
   const suppliedPassword = typeof req.body.password === 'string' ? req.body.password : '';
   const passwordTooLong = Buffer.byteLength(suppliedPassword, 'utf8') > 1024;
   const password = passwordTooLong ? '' : suppliedPassword;
-  const railwayClientIp = req.get('x-real-ip');
-  const clientIp = typeof railwayClientIp === 'string' && isIP(railwayClientIp.trim())
-    ? railwayClientIp.trim()
-    : String(req.socket?.remoteAddress || 'unknown').slice(0,128);
-  const identityKey = loginBucketKey('identity',`${clientIp}\\0${email}`);
+  const clientAddress = resolveClientIpAddress(
+    TRUSTED_CLIENT_IP_HEADER ? req.get(TRUSTED_CLIENT_IP_HEADER) : undefined,
+    req.socket?.remoteAddress,
+    Boolean(TRUSTED_CLIENT_IP_HEADER),
+  );
+  const clientIp = clientAddress.ip;
+  const identityKey = loginBucketKey('identity',clientIp + String.fromCharCode(0) + email);
   const ipKey = loginBucketKey('ip',clientIp);
+  // A socket peer behind a shared reverse proxy is not a unique client IP.
+  // Apply the IP-wide bucket only when a trusted ingress header is explicitly configured.
+  const rateLimitKeys = clientAddress.source === 'trusted-header' ? [identityKey,ipKey] : [identityKey];
   const now = Math.floor(Date.now()/1000);
   loginRequestCount += 1;
   if (loginRequestCount%100===0) {
@@ -247,7 +255,7 @@ app.post('/api/login',(req:any,res:any) => {
       .run(now-24*60*60,now);
   }
 
-  const blockedUntil = getBlockedUntil([identityKey,ipKey],now);
+  const blockedUntil = getBlockedUntil(rateLimitKeys,now);
   if (blockedUntil!==null) {
     res.setHeader('Retry-After',String(Math.max(1,blockedUntil-now)));
     res.setHeader('Cache-Control','no-store');
@@ -260,7 +268,7 @@ app.post('/api/login',(req:any,res:any) => {
   if (!user || !user.active || passwordTooLong || !passwordMatches) {
     recordLoginFailures([
       {key:identityKey,limit:LOGIN_RATE_LIMITS.identity},
-      {key:ipKey,limit:LOGIN_RATE_LIMITS.ip},
+      ...(clientAddress.source === 'trusted-header' ? [{key:ipKey,limit:LOGIN_RATE_LIMITS.ip}] : []),
     ],now);
     res.setHeader('Cache-Control','no-store');
     return res.status(401).json({error:'E-mailadres of wachtwoord klopt niet.'});
