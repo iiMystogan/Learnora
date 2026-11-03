@@ -11,6 +11,7 @@ import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 import { resolveClientIpAddress } from './security/client-ip.ts';
 import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
+import { validatePassword } from './security/password-policy.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -229,14 +230,6 @@ const parsePositiveId = (value: unknown): number | null => {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 
-const MIN_PASSWORD_CHARACTERS = 12;
-const MAX_PASSWORD_BYTES = 1024;
-const validatePassword = (value: unknown): string | null => {
-  if (typeof value !== 'string') return 'Vul een wachtwoord in.';
-  if (Array.from(value).length < MIN_PASSWORD_CHARACTERS) return `Het wachtwoord moet minimaal ${MIN_PASSWORD_CHARACTERS} tekens bevatten.`;
-  if (Buffer.byteLength(value, 'utf8') > MAX_PASSWORD_BYTES) return `Het wachtwoord mag maximaal ${MAX_PASSWORD_BYTES} UTF-8-bytes bevatten.`;
-  return null;
-};
 const classExists = (classId: number) =>
   !!db.prepare('SELECT 1 FROM classes WHERE id=?').get(classId);
 const canSeeAssignment = (user: any, assignmentId: number) => {
