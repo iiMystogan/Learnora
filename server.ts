@@ -173,7 +173,7 @@ app.post('/api/login',(req,res) => {
   res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role}});
 });
 app.post('/api/logout',(req,res)=>{res.clearCookie('session',{path:'/'});res.json({success:true});});
-app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.display_name,role:req.user.role}}));
+app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.displayName,role:req.user.role}}));
 
 app.get('/api/dashboard',authenticate,(req:any,res)=>{
   const u=req.user;
