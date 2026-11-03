@@ -212,7 +212,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       const filesBeforeRace = new Set(await readdir(uploadDir));
       const boundary = '----LearnoraAuthorizationRace';
       const encoder = new TextEncoder();
-      let uploadController: ReadableStreamDefaultController<Uint8Array>;
+      let uploadController: ReadableStreamDefaultController<Uint8Array> | null = null;
       let signalUploadStarted!: () => void;
       let releaseUpload!: () => void;
       const uploadStarted = new Promise<void>((resolve) => { signalUploadStarted = resolve; });
@@ -221,7 +221,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         start(controller) {
           uploadController = controller;
           controller.enqueue(encoder.encode(
-            `--${boundary}\\r\\nContent-Disposition: form-data; name="file"; filename="race.pdf"\\r\\nContent-Type: application/pdf\\r\\n\\r\\n%PDF-1.4\\npartial`,
+            `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="race.pdf"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.4\npartial`,
           ));
           signalUploadStarted();
         },
@@ -246,8 +246,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         assert.equal(partialFileWritten, true, 'Multer must be actively receiving the upload before membership changes');
         testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
         releaseUpload();
-        uploadController.enqueue(encoder.encode(`\\r\\n--${boundary}--\\r\\n`));
-        uploadController.close();
+        uploadController!.enqueue(encoder.encode(`\r\n--${boundary}--\r\n`));
+        uploadController!.close();
         const raceResponse = await raceUpload;
         assert.equal(raceResponse.status, 403,
           'an upload must be rejected when class authorization is revoked while bytes are being received');
