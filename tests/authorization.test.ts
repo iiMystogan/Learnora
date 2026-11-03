@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
-import { canSeeSubmission } from '../security/authorization.ts';
+import { canDeleteAssignment, canSeeSubmission } from '../security/authorization.ts';
 
 test('submission authorization is scoped to the teacher and student shared class', () => {
   const db = new Database(':memory:');
@@ -62,6 +62,42 @@ test('submission authorization is scoped to the teacher and student shared class
       'admin can access an existing submission');
     assert.equal(canSeeSubmission(db, { id: 1, role: 'admin' }, 999), false,
       'admin access still requires the submission to exist');
+  } finally {
+    db.close();
+  }
+});
+
+
+test('teachers can delete only assignments exclusive to their own classes', () => {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE assignments (id INTEGER PRIMARY KEY);
+    CREATE TABLE assignment_classes (assignment_id INTEGER NOT NULL, class_id INTEGER NOT NULL);
+    CREATE TABLE class_teachers (class_id INTEGER NOT NULL, teacher_id INTEGER NOT NULL);
+
+    INSERT INTO assignments VALUES (50), (51), (52), (53);
+    INSERT INTO assignment_classes VALUES (50, 1);
+    INSERT INTO assignment_classes VALUES (51, 1), (51, 2);
+    INSERT INTO assignment_classes VALUES (52, 2);
+    INSERT INTO assignment_classes VALUES (53, 1);
+    INSERT INTO class_teachers VALUES (1, 10), (2, 20);
+  `);
+
+  try {
+    assert.equal(canDeleteAssignment(db, { id: 10, role: 'teacher' }, 50), true,
+      'teacher can delete an assignment linked only to their own class');
+    assert.equal(canDeleteAssignment(db, { id: 10, role: 'teacher' }, 51), false,
+      'teacher cannot delete an assignment shared with another teacher class');
+    assert.equal(canDeleteAssignment(db, { id: 10, role: 'teacher' }, 52), false,
+      'teacher cannot delete an assignment linked only to another teacher class');
+    assert.equal(canDeleteAssignment(db, { id: 10, role: 'teacher' }, 999), false,
+      'teacher cannot delete a non-existent assignment');
+    assert.equal(canDeleteAssignment(db, { id: 1, role: 'admin' }, 51), true,
+      'admin can delete an existing assignment shared across classes');
+    assert.equal(canDeleteAssignment(db, { id: 1, role: 'admin' }, 999), false,
+      'admin cannot delete a non-existent assignment');
+    assert.equal(canDeleteAssignment(db, { id: 201, role: 'student' }, 50), false,
+      'students cannot delete assignments');
   } finally {
     db.close();
   }
