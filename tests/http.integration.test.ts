@@ -157,6 +157,31 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       'a logged-out JWT must be rejected even when the original cookie is replayed');
     assert.equal((await request('/api/me', { cookie: secondAdminSession })).status, 200,
       'logging out one session must not invalidate another active session');
+
+    // Security-sensitive account changes revoke every session, including after later reactivation.
+    const managedUserResponse=await request('/api/admin/users',{method:'POST',cookie:secondAdminSession,body:{
+      email:'session.lifecycle@demo.local',displayName:'Session Lifecycle',role:'student',password:'InitialPass123!',
+    }});
+    assert.equal(managedUserResponse.status,200);
+    const managedUserId=(await managedUserResponse.json() as {id:number}).id;
+    const managedSessionA=await login('session.lifecycle@demo.local','InitialPass123!');
+    const managedSessionB=await login('session.lifecycle@demo.local','InitialPass123!');
+    assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{role:'teacher'}})).status,200);
+    assert.equal((await request('/api/me',{cookie:managedSessionA})).status,401,'role changes revoke all sessions');
+    assert.equal((await request('/api/me',{cookie:managedSessionB})).status,401,'role changes revoke parallel sessions too');
+    const afterRoleChange=await login('session.lifecycle@demo.local','InitialPass123!');
+    assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{password:'ChangedPass123!'}})).status,200);
+    assert.equal((await request('/api/me',{cookie:afterRoleChange})).status,401,'password changes revoke existing sessions');
+    assert.equal((await login('session.lifecycle@demo.local','InitialPass123!').catch(()=>'')), '', 'old password must no longer work');
+    const afterPasswordChange=await login('session.lifecycle@demo.local','ChangedPass123!');
+    assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,200);
+    assert.equal((await request('/api/me',{cookie:afterPasswordChange})).status,401,'deactivation revokes sessions');
+    assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{active:true}})).status,200);
+    assert.equal((await request('/api/me',{cookie:afterPasswordChange})).status,401,'reactivation must not revive revoked sessions');
+    assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{role:'superuser'}})).status,400);
+    assert.equal((await request('/api/admin/users/not-a-number',{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400);
+    assert.equal((await request(`/api/admin/users/${secondAdminSession}`,{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400);
+
     admin = await login('admin@demo.local', 'Admin123!');
     const teacherJansen = await login('docent.jansen@demo.local', 'Teacher123!');
     const teacherVisser = await login('docent.visser@demo.local', 'Teacher123!');
