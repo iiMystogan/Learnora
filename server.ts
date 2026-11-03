@@ -220,10 +220,9 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
   });
   try { res.json({id:create()}); } catch { res.status(400).json({error:'Aanmaken van de klas is niet gelukt.'}); }
 });
-app.get('/api/classes/:id/students',authenticate,(req:any,res)=>{
+app.get('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const id=Number(req.params.id);
   if(req.user.role==='teacher'&&!canTeachClass(req.user.id,id)) return res.status(403).json({error:'Deze klas hoort niet bij jouw account.'});
-  if(req.user.role==='student'&&!db.prepare('SELECT 1 FROM class_students WHERE class_id=? AND student_id=?').get(id,req.user.id)) return res.status(403).json({error:'Geen toegang tot deze klas.'});
   const students=db.prepare(\`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? ORDER BY u.display_name\`).all(id);
   res.json(students);
 });
