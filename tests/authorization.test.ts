@@ -131,3 +131,42 @@ test('students can submit only to published assignments in their own classes', (
     db.close();
   }
 });
+
+
+test('teacher dashboard counts submissions only from students in their own classes', () => {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE assignments (id INTEGER PRIMARY KEY, title TEXT, created_at TEXT);
+    CREATE TABLE assignment_classes (assignment_id INTEGER NOT NULL, class_id INTEGER NOT NULL);
+    CREATE TABLE class_teachers (class_id INTEGER NOT NULL, teacher_id INTEGER NOT NULL);
+    CREATE TABLE class_students (class_id INTEGER NOT NULL, student_id INTEGER NOT NULL);
+    CREATE TABLE submissions (id INTEGER PRIMARY KEY, assignment_id INTEGER NOT NULL, student_id INTEGER NOT NULL);
+
+    INSERT INTO assignments VALUES (70, 'Shared assignment', '2026-11-03');
+    INSERT INTO assignment_classes VALUES (70, 1), (70, 2);
+    INSERT INTO class_teachers VALUES (1, 10), (2, 20);
+    INSERT INTO class_students VALUES (1, 201), (2, 202);
+    INSERT INTO submissions VALUES (301, 70, 201), (302, 70, 202);
+  `);
+
+  try {
+    const rows = db.prepare(`
+      SELECT a.id, COUNT(DISTINCT s.id) AS submission_count
+      FROM assignments a
+      JOIN assignment_classes ac ON ac.assignment_id=a.id
+      JOIN class_teachers ct ON ct.class_id=ac.class_id
+      LEFT JOIN submissions s ON s.assignment_id=a.id
+        AND EXISTS (
+          SELECT 1 FROM class_students csx
+          WHERE csx.class_id=ac.class_id AND csx.student_id=s.student_id
+        )
+      WHERE ct.teacher_id=?
+      GROUP BY a.id
+    `).all(10) as Array<{id:number;submission_count:number}>;
+
+    assert.deepEqual(rows, [{id:70,submission_count:1}],
+      'teacher dashboard must not count submissions from another teacher class');
+  } finally {
+    db.close();
+  }
+});
