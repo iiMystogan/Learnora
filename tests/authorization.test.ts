@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import testCase from 'node:test';
+import { test } from 'node:test';
 import Database from 'better-sqlite3';
 import { canSeeSubmission } from '../security/authorization.ts';
 
-testCase('submission authorization is scoped to the teacher and student shared class', () => {
+test('submission authorization is scoped to the teacher and student shared class', () => {
   const db = new Database(':memory:');
   db.exec(`
     CREATE TABLE submissions (
