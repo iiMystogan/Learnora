@@ -186,8 +186,8 @@ app.get('/api/dashboard',authenticate,(req:any,res)=>{
   }
   const classWhere=u.role==='admin'?'':'WHERE ct.teacher_id=?';
   const classes=db.prepare(`SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
-    \${u.role==='admin'?'LEFT JOIN class_teachers ct ON ct.class_id=c.id':'JOIN class_teachers ct ON ct.class_id=c.id'}
-    LEFT JOIN class_students cs ON cs.class_id=c.id \${classWhere} GROUP BY c.id ORDER BY c.name`).all(...(u.role==='admin'?[]:[u.id]));
+    ${u.role==='admin'?'LEFT JOIN class_teachers ct ON ct.class_id=c.id':'JOIN class_teachers ct ON ct.class_id=c.id'}
+    LEFT JOIN class_students cs ON cs.class_id=c.id ${classWhere} GROUP BY c.id ORDER BY c.name`).all(...(u.role==='admin'?[]:[u.id]));
   const assignmentSql=u.role==='admin'?`SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count
     FROM assignments a
     LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id
@@ -207,7 +207,7 @@ app.get('/api/dashboard',authenticate,(req:any,res)=>{
     LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id
     LEFT JOIN class_students cs ON cs.class_id=ac.class_id
     LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=cs.student_id
-    \${u.role==='admin'?'':'JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE ct.teacher_id=?'}`).get(...(u.role==='admin'?[]:[u.id]));
+    ${u.role==='admin'?'':'JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE ct.teacher_id=?'}`).get(...(u.role==='admin'?[]:[u.id]));
   res.json({classes,assignments,totals});
 });
 
