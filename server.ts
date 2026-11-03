@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
-import { canSeeSubmission } from './security/authorization.ts';
+import { canDeleteAssignment, canSeeSubmission } from './security/authorization.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -263,7 +263,7 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
 });
 app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const id=Number(req.params.id);
-  if(req.user.role==='teacher'&&!canSeeAssignment(req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
+  if(!canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
   db.prepare('DELETE FROM assignments WHERE id=?').run(id); audit(req.user.id,'assignment.deleted','assignment',id); res.json({success:true});
 });
 
