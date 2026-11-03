@@ -254,10 +254,18 @@ app.get('/api/classes',authenticate,(req:any,res)=>{
 app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const name=String(req.body.name||'').trim();
   if(!name) return res.status(400).json({error:'Vul een klasnaam in.'});
+  let assignedTeacherId: number|undefined;
+  if(req.user.role==='admin' && req.body.teacherId !== undefined && req.body.teacherId !== null && req.body.teacherId !== ''){
+    assignedTeacherId=Number(req.body.teacherId);
+    if(!Number.isSafeInteger(assignedTeacherId)||assignedTeacherId<=0||
+      !db.prepare("SELECT 1 FROM users WHERE id=? AND role='teacher' AND active=1").get(assignedTeacherId)){
+      return res.status(400).json({error:'Selecteer een actief docentaccount voor deze klas.'});
+    }
+  }
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO classes(name,year_group) VALUES(?,?)').run(name,String(req.body.yearGroup||'')).lastInsertRowid as number;
     if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,req.user.id);
-    else if(req.body.teacherId) db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,Number(req.body.teacherId));
+    else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,assignedTeacherId);
     audit(req.user.id,'class.created','class',id,name); return id;
   });
   try { res.json({id:create()}); } catch { res.status(400).json({error:'Aanmaken van de klas is niet gelukt.'}); }
