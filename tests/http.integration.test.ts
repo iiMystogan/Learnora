@@ -272,6 +272,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     // Admin retains global access and admin-only user/audit operations.
     assert.equal((await request('/api/admin/overview', { cookie: admin })).status, 200);
     assert.equal((await request('/api/admin/audit', { cookie: admin })).status, 200);
+    const adminUsers = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{id:number;email:string;role:string}>;
+    const seededStudent = adminUsers.find((item) => item.email === 'student.noor@demo.local');
+    assert.ok(seededStudent);
+    assert.equal((await request('/api/classes', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: 'Invalid teacher assignment', teacherId: seededStudent.id },
+    })).status, 400, 'admin must not assign a student account as a class teacher');
     assert.equal((await request('/api/admin/audit', { cookie: teacherJansen })).status, 403);
     assert.equal((await request('/api/admin/users', { cookie: studentNoor })).status, 403);
     const adminCreateUser = await request('/api/admin/users', {
