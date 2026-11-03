@@ -10,7 +10,7 @@ Open Command Prompt and paste:
 
 ```cmd
 cd /d "%USERPROFILE%"
-git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Learnora-file-manager.git Learnora-demo
+git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Xerte-file-manager.git Learnora-demo
 cd Learnora-demo
 npm install
 npm run dev
