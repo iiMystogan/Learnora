@@ -228,6 +228,15 @@ const parsePositiveId = (value: unknown): number | null => {
   const id = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
+
+const MIN_PASSWORD_CHARACTERS = 12;
+const MAX_PASSWORD_BYTES = 1024;
+const validatePassword = (value: unknown): string | null => {
+  if (typeof value !== 'string') return 'Vul een wachtwoord in.';
+  if (Array.from(value).length < MIN_PASSWORD_CHARACTERS) return `Het wachtwoord moet minimaal ${MIN_PASSWORD_CHARACTERS} tekens bevatten.`;
+  if (Buffer.byteLength(value, 'utf8') > MAX_PASSWORD_BYTES) return `Het wachtwoord mag maximaal ${MAX_PASSWORD_BYTES} UTF-8-bytes bevatten.`;
+  return null;
+};
 const classExists = (classId: number) =>
   !!db.prepare('SELECT 1 FROM classes WHERE id=?').get(classId);
 const canSeeAssignment = (user: any, assignmentId: number) => {
@@ -427,8 +436,9 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
   if(student&&student.role!=='student') return res.status(400).json({error:'Dit account is geen studentaccount.'});
   if(student&&!student.active) return res.status(400).json({error:'Dit studentaccount is niet actief.'});
   if(!student){
-    const password=String(req.body.password||'Student123!');
-    const result=db.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')").run(email,name,bcrypt.hashSync(password,10));
+    const passwordError=validatePassword(req.body.password);
+    if(passwordError) return res.status(400).json({error:passwordError});
+    const result=db.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')").run(email,name,bcrypt.hashSync(req.body.password,10));
     student={id:result.lastInsertRowid};
   }
   db.prepare('INSERT OR IGNORE INTO class_students(class_id,student_id) VALUES(?,?)').run(classId,student.id);
@@ -590,8 +600,8 @@ app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)
     if(Number(req.body.active)!==target.active) updates.active=Number(req.body.active);
   }
   if(Object.prototype.hasOwnProperty.call(req.body,'password') && req.body.password!==''){
-    if(typeof req.body.password!=='string'||Buffer.byteLength(req.body.password,'utf8')<8||Buffer.byteLength(req.body.password,'utf8')>1024)
-      return res.status(400).json({error:'Het wachtwoord moet minimaal 8 en maximaal 1024 bytes bevatten.'});
+    const passwordError=validatePassword(req.body.password);
+    if(passwordError) return res.status(400).json({error:passwordError});
     updates.password_hash=bcrypt.hashSync(req.body.password,10);
   }
   const changed=Object.keys(updates);
@@ -613,8 +623,9 @@ app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)
 app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
   const email=String(req.body.email||'').trim().toLowerCase(), name=String(req.body.displayName||'').trim();
   const role=String(req.body.role||'');
-  if(!email||!name||!['teacher','student','admin'].includes(role)||String(req.body.password||'').length<8)
-    return res.status(400).json({error:'Vul naam, geldig e-mailadres, rol en wachtwoord (minimaal 8 tekens) in.'});
+  const passwordError=validatePassword(req.body.password);
+  if(!email||!name||!['teacher','student','admin'].includes(role)||passwordError)
+    return res.status(400).json({error:passwordError||'Vul naam, geldig e-mailadres en een geldige rol in.'});
   try{
     const id=db.prepare('INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)').run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid;
     audit(req.user.id,'user.created','user',Number(id),email);res.json({id});
