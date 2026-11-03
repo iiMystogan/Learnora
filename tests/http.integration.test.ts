@@ -111,7 +111,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.ok(csrfCookie, 'CSRF bootstrap must issue a cookie');
     csrf.cookie = csrfCookie.split(';', 1)[0];
     assert.match(csrfCookie, /SameSite=Lax/i);
-    assert.match(csrfCookie, /HttpOnly/i, 'the CSRF cookie must be readable by the frontend');
+    assert.doesNotMatch(csrfCookie, /HttpOnly/i, 'the CSRF cookie must be readable by the frontend');
 
     // Unsafe requests without the signed header/cookie pair must be rejected.
     assert.equal((await request('/api/login', {
