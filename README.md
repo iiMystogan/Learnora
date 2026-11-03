@@ -14,33 +14,21 @@ npm run dev
 
 Open http://localhost:3000. The SQLite database is created automatically as `database.sqlite`; uploaded files are stored under `uploads/submissions`.
 
-## Update or switch version (Windows CMD)
+## Update the demo version (Windows CMD)
 
-You do **not** need to download or clone the repository again. These commands update the existing local copy and retrieve only changes from GitHub.
+This section is intended for your own local setup. You do **not** need to download or clone the repository again. These commands update your existing local copy of the demo branch.
 
 Stop the running app first with **Ctrl+C**.
 
-**Stable version (main):**
-
 ```cmd
-cd C:\Users\Daan_\Xerte-file-manager
-git fetch origin
-git switch main
-git pull --ff-only origin main
-npm run dev
-```
-
-**Development/demo version (demo/education-platform):**
-
-```cmd
-cd C:\Users\Daan_\Xerte-file-manager
+cd C:\\Users\\Daan_\\Xerte-file-manager
 git fetch origin
 git switch demo/education-platform
 git pull --ff-only origin demo/education-platform
 npm run dev
 ```
 
-Use `main` for the stable version and `demo/education-platform` for ongoing development and testing. If Git reports that the local branch does not exist yet, `git switch` normally creates it from the matching remote branch automatically. Run `npm install` only for the first setup or when project dependencies have changed.
+Run `npm install` only for the first setup or when project dependencies have changed.
 
 ## Demo accounts
 
