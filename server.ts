@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
-import { canDeleteAssignment, canSeeSubmission } from './security/authorization.ts';
+import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -307,13 +307,13 @@ const upload=multer({storage:multer.diskStorage({
 }});
 app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
   const assignmentId=Number(req.params.id);
-  if(!Number.isSafeInteger(assignmentId)||assignmentId<=0||!canSeeAssignment(req.user,assignmentId))
+  if(!Number.isSafeInteger(assignmentId)||assignmentId<=0||!canSubmitAssignment(db,req.user,assignmentId))
     return res.status(403).json({error:'Deze opdracht is niet beschikbaar voor jouw klas.'});
   next();
 },upload.single('file'),(req:any,res)=>{
   const assignmentId=Number(req.params.id), file=req.file;
   if(!file) return res.status(400).json({error:'Kies een PDF-, Word- of ZIP-bestand (maximaal 20 MB).'});
-  if(!canSeeAssignment(req.user,assignmentId)){fs.unlinkSync(file.path);return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});}
+  if(!canSubmitAssignment(db,req.user,assignmentId)){fs.unlinkSync(file.path);return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});}
   const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
   if(previous){try{fs.unlinkSync(path.join(uploadDir,previous.stored_filename));}catch{}}
   const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
