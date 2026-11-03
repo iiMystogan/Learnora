@@ -179,8 +179,88 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const stillExists = await (await request('/api/assignments', { cookie: teacherVisser })).json() as Array<{ id: number }>;
     assert.equal(stillExists.some((item) => item.id === sharedAssignment.id), true);
 
-    // Admin retains the intended global access.
+    // Assignment lists and progress must stay within each user's class boundary.
+    const jansenAssignments = await (await request('/api/assignments', { cookie: teacherJansen })).json() as Array<{ id: number }>;
+    assert.equal(jansenAssignments.some((item) => item.id === sharedAssignment.id), true);
+    const visserProgressResponse = await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: teacherVisser });
+    assert.equal(visserProgressResponse.status, 200);
+    const visserProgress = await visserProgressResponse.json() as Array<{ student_email: string }>;
+    assert.equal(visserProgress.some((item) => item.student_email === 'student.noor@demo.local'), false);
+    assert.equal(visserProgress.some((item) => item.student_email === 'student.sara@demo.local'), true);
+    assert.equal((await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: studentSara })).status, 403);
+
+    const noorAssignments = await (await request('/api/assignments', { cookie: studentNoor })).json() as Array<{ title: string }>;
+    assert.ok(noorAssignments.some((item) => item.title === 'Netwerkontwerp'));
+    assert.equal(noorAssignments.some((item) => item.title === 'Portfolio media'), false);
+    assert.equal((await request('/api/assignments', { cookie: studentNoor, method: 'POST', body: { title: 'Student assignment', classIds: [ictClass.id] } })).status, 403);
+
+    // Class creation and enrolment must be restricted to the assigned teacher/admin.
+    const createClass = await request('/api/classes', {
+      method: 'POST',
+      cookie: teacherJansen,
+      body: { name: 'HTTP Testklas', yearGroup: '2026–2027' },
+    });
+    assert.equal(createClass.status, 200);
+    const testClass = await createClass.json() as { id: number };
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: teacherVisser })).status, 403);
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: studentNoor })).status, 403);
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, {
+      method: 'POST',
+      cookie: teacherVisser,
+      body: { email: 'new.student@demo.local', displayName: 'Nieuwe student' },
+    })).status, 403);
+    assert.equal((await request(`/api/classes/${testClass.id}/students`, {
+      method: 'POST',
+      cookie: teacherJansen,
+      body: { email: 'new.student@demo.local', displayName: 'Nieuwe student' },
+    })).status, 200);
+    const enrolled = await (await request(`/api/classes/${testClass.id}/students`, { cookie: teacherJansen })).json() as Array<{ email: string }>;
+    assert.equal(enrolled.some((item) => item.email === 'new.student@demo.local'), true);
+    assert.equal((await request('/api/classes', { cookie: studentNoor, method: 'POST', body: { name: 'Student class' } })).status, 403);
+
+    // Feedback validation and student write access.
+    assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
+      method: 'POST',
+      cookie: teacherVisser,
+      body: { comments: '   ' },
+    })).status, 400);
+    assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
+      method: 'POST',
+      cookie: studentSara,
+      body: { comments: 'Student attempts to grade' },
+    })).status, 403);
+
+    // Dashboard data must be role- and class-scoped.
+    const jansenDashboard = await (await request('/api/dashboard', { cookie: teacherJansen })).json() as {
+      classes: Array<{ name: string }>;
+      assignments: Array<{ title: string }>;
+    };
+    assert.ok(jansenDashboard.classes.every((item) => item.name === 'ICT 2A' || item.name === 'HTTP Testklas'));
+    assert.equal(jansenDashboard.assignments.some((item) => item.title === 'Portfolio media'), false);
+    const noorDashboard = await (await request('/api/dashboard', { cookie: studentNoor })).json() as {
+      classes: Array<{ name: string }>;
+      assignments: Array<{ title: string }>;
+    };
+    assert.deepEqual(noorDashboard.classes.map((item) => item.name), ['ICT 2A']);
+    assert.equal(noorDashboard.assignments.some((item) => item.title === 'Portfolio media'), false);
+
+    // Admin retains global access and admin-only user/audit operations.
     assert.equal((await request('/api/admin/overview', { cookie: admin })).status, 200);
+    assert.equal((await request('/api/admin/audit', { cookie: admin })).status, 200);
+    assert.equal((await request('/api/admin/audit', { cookie: teacherJansen })).status, 403);
+    assert.equal((await request('/api/admin/users', { cookie: studentNoor })).status, 403);
+    const adminCreateUser = await request('/api/admin/users', {
+      method: 'POST',
+      cookie: admin,
+      body: { email: 'http.created@demo.local', displayName: 'HTTP Created', role: 'teacher', password: 'SecurePass123!' },
+    });
+    assert.equal(adminCreateUser.status, 200);
+    assert.equal((await request('/api/admin/users', { cookie: admin })).status, 200);
+    assert.equal((await request('/api/admin/users', {
+      method: 'POST',
+      cookie: teacherJansen,
+      body: { email: 'forbidden@demo.local', displayName: 'Forbidden', role: 'admin', password: 'SecurePass123!' },
+    })).status, 403);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
