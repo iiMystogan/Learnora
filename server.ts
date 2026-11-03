@@ -272,6 +272,20 @@ app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(r
   db.prepare('DELETE FROM assignments WHERE id=?').run(id); audit(req.user.id,'assignment.deleted','assignment',id); res.json({success:true});
 });
 
+app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+  const id=Number(req.params.id);
+  if(!canSeeAssignment(req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
+  const rows=db.prepare(`SELECT u.id student_id,u.display_name student_name,u.email student_email,c.name class_name,
+    s.id submission_id,s.submitted_at,f.status review_status,f.grade
+    FROM assignment_classes ac JOIN classes c ON c.id=ac.class_id
+    JOIN class_students cs ON cs.class_id=c.id JOIN users u ON u.id=cs.student_id
+    LEFT JOIN submissions s ON s.assignment_id=ac.assignment_id AND s.student_id=u.id
+    LEFT JOIN feedback f ON f.submission_id=s.id
+    WHERE ac.assignment_id=? ${req.user.role==='teacher'?'AND EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id=c.id AND ct.teacher_id='+Number(req.user.id)+')':''}
+    ORDER BY c.name,u.display_name`).all(id);
+  res.json(rows);
+});
+
 app.get('/api/submissions',authenticate,(req:any,res)=>{
   const base=\`SELECT s.id,s.assignment_id,s.student_id,s.original_filename,s.file_size,s.submitted_at,
     a.title assignment_title,u.display_name student_name,u.email student_email,c.name class_name,
