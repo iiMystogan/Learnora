@@ -18,3 +18,9 @@ Een minimale lengte en ruimte voor wachtwoordzinnen stimuleren langere wachtwoor
 ## Tests
 
 De HTTP-integratietests controleren dat een wachtwoord van 11 tekens wordt geweigerd bij accountaanmaak en bij een beheerder-wachtwoordwijziging, terwijl bestaande testwachtwoorden van minimaal 12 tekens worden geaccepteerd.
+
+## Veelgebruikte wachtwoorden
+
+Naast de lengtecontrole wordt een lokale denylist gebruikt voor bekende, veelgebruikte wachtwoorden en eenvoudige patronen. De controle negeert hoofdletters en scheidingstekens, zodat bijvoorbeeld hoofdlettervarianten en varianten met streepjes of underscores ook worden herkend.
+
+Dit is een aanvullende basiscontrole, geen volledige controle tegen alle gelekte wachtwoorden. Er wordt geen wachtwoord naar een externe dienst verstuurd en er is geen runtime-netwerkafhankelijkheid. Een toekomstige integratie met een grotere, onderhouden blocklist kan dit verder versterken.
