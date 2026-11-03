@@ -281,8 +281,8 @@ app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admi
     JOIN class_students cs ON cs.class_id=c.id JOIN users u ON u.id=cs.student_id
     LEFT JOIN submissions s ON s.assignment_id=ac.assignment_id AND s.student_id=u.id
     LEFT JOIN feedback f ON f.submission_id=s.id
-    WHERE ac.assignment_id=? ${req.user.role==='teacher'?'AND EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id=c.id AND ct.teacher_id='+Number(req.user.id)+')':''}
-    ORDER BY c.name,u.display_name`).all(id);
+    WHERE ac.assignment_id=? ${req.user.role==='teacher'?'AND EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id=c.id AND ct.teacher_id=?)':''}
+    ORDER BY c.name,u.display_name`).all(...(req.user.role==='teacher'?[id,req.user.id]:[id]));
   res.json(rows);
 });
 
