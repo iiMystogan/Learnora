@@ -63,13 +63,20 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
   child.stderr?.on('data', (chunk) => output.push(String(chunk)));
   const getOutput = () => output.join('');
 
+  const csrf = { token: '', cookie: '' };
+
   const request = async (
     route: string,
-    options: { method?: string; cookie?: string; body?: unknown } = {},
+    options: { method?: string; cookie?: string; body?: unknown; csrf?: boolean; csrfToken?: string } = {},
   ) => {
     const headers: Record<string, string> = {};
     let body: BodyInit | undefined;
-    if (options.cookie) headers.Cookie = options.cookie;
+    const method = (options.method || 'GET').toUpperCase();
+    const cookieParts = [options.cookie, csrf.cookie].filter(Boolean);
+    if (cookieParts.length) headers.Cookie = cookieParts.join('; ');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && options.csrf !== false) {
+      headers['X-CSRF-Token'] = options.csrfToken ?? csrf.token;
+    }
     if (options.body instanceof FormData) {
       body = options.body;
     } else if (options.body !== undefined) {
@@ -77,7 +84,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       body = JSON.stringify(options.body);
     }
     return fetch(`${baseUrl}${route}`, {
-      method: options.method || 'GET',
+      method,
       headers,
       body,
     });
@@ -97,6 +104,25 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
   try {
     await waitForApi(baseUrl, child, getOutput);
 
+    const csrfResponse = await fetch(`${baseUrl}/api/csrf`);
+    assert.equal(csrfResponse.status, 200, 'the CSRF bootstrap endpoint must be available');
+    csrf.token = ((await csrfResponse.json()) as { csrfToken: string }).csrfToken;
+    const csrfCookie = csrfResponse.headers.get('set-cookie');
+    assert.ok(csrfCookie, 'CSRF bootstrap must issue a cookie');
+    csrf.cookie = csrfCookie.split(';', 1)[0];
+    assert.match(csrfCookie, /SameSite=Lax/i);
+    assert.match(csrfCookie, /HttpOnly/i, 'the CSRF cookie must be readable by the frontend');
+
+    // Unsafe requests without the signed header/cookie pair must be rejected.
+    assert.equal((await request('/api/login', {
+      method: 'POST', csrf: false,
+      body: { email: 'admin@demo.local', password: 'Admin123!' },
+    })).status, 403);
+    assert.equal((await request('/api/login', {
+      method: 'POST', csrfToken: 'invalid-token',
+      body: { email: 'admin@demo.local', password: 'Admin123!' },
+    })).status, 403);
+
     // Unauthenticated requests must not expose protected resources.
     assert.equal((await request('/api/classes')).status, 401);
 
@@ -107,6 +133,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const currentUser = await request('/api/me', { cookie: admin });
     assert.equal(currentUser.status, 200);
     assert.equal(((await currentUser.json()) as { user: { role: string } }).user.role, 'admin');
+    assert.equal((await request('/api/logout', { method: 'POST', cookie: admin, csrf: false })).status, 403,
+      'logout must reject requests without a CSRF token');
+    assert.equal((await request('/api/me', { cookie: admin })).status, 200,
+      'a rejected logout must leave the session active');
     const logout = await request('/api/logout', { method: 'POST', cookie: admin });
     assert.equal(logout.status, 200);
     assert.match(logout.headers.get('set-cookie') || '', /session=;/);
