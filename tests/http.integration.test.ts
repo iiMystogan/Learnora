@@ -98,7 +98,16 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     // Unauthenticated requests must not expose protected resources.
     assert.equal((await request('/api/classes')).status, 401);
 
+    // Authentication endpoints: invalid credentials, current user and logout cookie handling.
+    assert.equal((await request('/api/login', { method: 'POST', body: { email: 'admin@demo.local', password: 'incorrect-password' } })).status, 401);
     const admin = await login('admin@demo.local', 'Admin123!');
+    const currentUser = await request('/api/me', { cookie: admin });
+    assert.equal(currentUser.status, 200);
+    assert.equal(((await currentUser.json()) as { user: { role: string } }).user.role, 'admin');
+    const logout = await request('/api/logout', { method: 'POST', cookie: admin });
+    assert.equal(logout.status, 200);
+    assert.match(logout.headers.get('set-cookie') || '', /session=;/);
+    assert.equal((await request('/api/me')).status, 401);
     const teacherJansen = await login('docent.jansen@demo.local', 'Teacher123!');
     const teacherVisser = await login('docent.visser@demo.local', 'Teacher123!');
     const studentNoor = await login('student.noor@demo.local', 'Student123!');
@@ -116,6 +125,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.deepEqual(jansenClasses.map((item) => item.name), ['ICT 2A']);
     assert.equal((await request(`/api/classes/${mediaClass.id}/students`, { cookie: teacherJansen })).status, 403);
 
+    assert.equal((await request(`/api/classes/${ictClass.id}/students`, { cookie: admin })).status, 200);
     const noorClasses = await (await request('/api/classes', { cookie: studentNoor })).json() as Array<{ name: string }>;
     assert.deepEqual(noorClasses.map((item) => item.name), ['ICT 2A']);
     assert.equal((await request('/api/admin/users', { cookie: teacherJansen })).status, 403);
@@ -149,6 +159,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const submission = await upload.json() as { id: number };
 
     // Jansen teaches ICT 2A, not Sara's Media 3B class: no list, feedback or download access.
+    const saraSubmissions = await (await request('/api/submissions', { cookie: studentSara })).json() as Array<{ id: number }>;
+    assert.equal(saraSubmissions.some((item) => item.id === submission.id), true);
+    const noorSubmissions = await (await request('/api/submissions', { cookie: studentNoor })).json() as Array<{ id: number }>;
+    assert.equal(noorSubmissions.some((item) => item.id === submission.id), false);
+    assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: admin })).status, 200);
     const jansenSubmissions = await (await request('/api/submissions', { cookie: teacherJansen })).json() as Array<{ id: number }>;
     assert.equal(jansenSubmissions.some((item) => item.id === submission.id), false);
     assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
