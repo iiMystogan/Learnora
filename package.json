@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/authorization.test.ts"
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
