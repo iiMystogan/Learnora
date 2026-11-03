@@ -380,6 +380,6 @@ async function startServer(){
     app.use(express.static(dist));
     app.get('*',(_req,res)=>res.sendFile(path.join(dist,'index.html')));
   }
-  app.listen(port,'0.0.0.0',()=>console.log('Xerte Education Demo draait op http://localhost:'+port));
+  app.listen(port,'0.0.0.0',()=>console.log('Learnora draait op http://localhost:'+port));
 }
 startServer();
