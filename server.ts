@@ -293,6 +293,7 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
   if(!email||!name) return res.status(400).json({error:'Naam en e-mailadres zijn verplicht.'});
   let student=db.prepare("SELECT * FROM users WHERE email=?").get(email) as any;
   if(student&&student.role!=='student') return res.status(400).json({error:'Dit account is geen studentaccount.'});
+  if(student&&!student.active) return res.status(400).json({error:'Dit studentaccount is niet actief.'});
   if(!student){
     const password=String(req.body.password||'Student123!');
     const result=db.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')").run(email,name,bcrypt.hashSync(password,10));
@@ -333,7 +334,8 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
   res.json({id:create()});
 });
 app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const id=Number(req.params.id);
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
   if(!canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
   db.prepare('DELETE FROM assignments WHERE id=?').run(id); audit(req.user.id,'assignment.deleted','assignment',id); res.json({success:true});
 });
@@ -376,8 +378,9 @@ const upload=multer({storage:multer.diskStorage({
   cb(null,['.pdf','.doc','.docx','.zip'].includes(ext));
 }});
 app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
-  const assignmentId=Number(req.params.id);
-  if(!Number.isSafeInteger(assignmentId)||assignmentId<=0||!canSubmitAssignment(db,req.user,assignmentId))
+  const assignmentId=parsePositiveId(req.params.id);
+  if(assignmentId===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
+  if(!canSubmitAssignment(db,req.user,assignmentId))
     return res.status(403).json({error:'Deze opdracht is niet beschikbaar voor jouw klas.'});
   next();
 },upload.single('file'),(req:any,res)=>{
@@ -395,7 +398,8 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
   res.json({success:true,id:row.id});
 });
 app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const id=Number(req.params.id);
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig inzendingsnummer.'});
   if(!canSeeSubmission(db,req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
   const comments=String(req.body.comments||'').trim();
   if(!comments) return res.status(400).json({error:'Feedback mag niet leeg zijn.'});
@@ -406,10 +410,11 @@ app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','adm
   res.json({success:true});
 });
 app.get('/api/submissions/:id/download',authenticate,(req:any,res)=>{
-  const id=Number(req.params.id);
-  if(!canSeeSubmission(db,req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig inzendingsnummer.'});
   const row=db.prepare('SELECT * FROM submissions WHERE id=?').get(id) as any;
-  if(!row) return res.status(404).json({error:'Bestand niet gevonden.'});
+  if(!row) return res.status(404).json({error:'Inzending niet gevonden.'});
+  if(!canSeeSubmission(db,req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
   const file=path.join(uploadDir,row.stored_filename);
   if(!fs.existsSync(file)) return res.status(404).json({error:'Bestand staat niet meer op de server.'});
   res.download(file,row.original_filename);
