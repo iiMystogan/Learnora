@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveClientIpAddress } from './client-ip.ts';
+import { resolveClientIpAddress } from '../security/client-ip.ts';
 
 test('forwarded client IP is ignored unless explicitly trusted', () => {
   assert.deepEqual(
