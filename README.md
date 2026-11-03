@@ -100,7 +100,7 @@ See [security/NETWORKING.md](security/NETWORKING.md) for the current private-net
 
 ## Sessie-invalidatie
 
-Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle bestaande sessies van het betreffende account ingetrokken. De beheerder kan accounts beheren via de gebruikerspagina. Zie [security/SESSIONS.md](security/SESSIONS.md) voor details.
+Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle bestaande sessies van het betreffende account ingetrokken. Gebruikers kunnen ook zelf hun wachtwoord wijzigen door hun huidige wachtwoord te bevestigen; daarna moeten ze opnieuw inloggen. De beheerder kan accounts beheren via de gebruikerspagina. Zie [security/SESSIONS.md](security/SESSIONS.md) voor details.
 
 ## Wachtwoordbeleid
 
