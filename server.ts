@@ -157,6 +157,48 @@ app.use((req: any, _res, next) => {
   next();
 });
 
+// Signed double-submit CSRF token. The signature prevents sibling subdomains or other
+// untrusted origins from planting a valid token cookie for this host.
+const createCsrfToken = () => {
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(nonce).digest('hex');
+  return `${nonce}.${signature}`;
+};
+const isValidCsrfToken = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  const parts = value.split('.');
+  if (parts.length !== 2 || !/^[a-f0-9]{64}$/.test(parts[0]) || !/^[a-f0-9]{64}$/.test(parts[1])) return false;
+  const expected = crypto.createHmac('sha256', JWT_SECRET).update(parts[0]).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(parts[1], 'hex'), Buffer.from(expected, 'hex'));
+};
+
+app.get('/api/csrf', (_req, res) => {
+  const token = createCsrfToken();
+  res.cookie('learnora_csrf', token, {
+    httpOnly: false,
+    secure: isProduction,
+    sameSite: 'lax',
+    maxAge: 8 * 60 * 60 * 1000,
+    path: '/',
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ csrfToken: token });
+});
+
+// All API requests that can change state require the signed token in both the
+// host-only cookie and a custom header. Safe methods remain available without it.
+app.use('/api', (req: any, res: any, next: any) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const cookieToken = req.cookies?.learnora_csrf;
+  const headerToken = req.get('x-csrf-token');
+  if (!isValidCsrfToken(cookieToken) || typeof headerToken !== 'string' ||
+      headerToken.length !== cookieToken.length ||
+      !crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(cookieToken))) {
+    return res.status(403).json({ error: 'CSRF-controle mislukt. Vernieuw de pagina en probeer opnieuw.' });
+  }
+  next();
+});
+
 type SessionUser = { id: number; email: string; displayName: string; role: 'admin'|'teacher'|'student' };
 const authenticate = (req: any, res: any, next: any) => {
   const token = req.cookies.session;
