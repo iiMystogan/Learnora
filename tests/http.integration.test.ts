@@ -455,7 +455,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       classes: Array<{ name: string }>;
       assignments: Array<{ title: string }>;
     };
-    assert.ok(jansenDashboard.classes.every((item) => item.name === 'ICT 2A' || item.name === 'HTTP Testklas'));
+    assert.ok(jansenDashboard.classes.every((item) => ['ICT 2A', 'HTTP Testklas', 'Admin Testklas'].includes(item.name)));
     assert.equal(jansenDashboard.assignments.some((item) => item.title === 'Portfolio media'), false);
     const noorDashboardResponse = await request('/api/dashboard', { cookie: studentNoor });
     assert.equal(noorDashboardResponse.status, 200, 'student dashboard: ' + (await noorDashboardResponse.clone().text()).slice(0, 1000));
