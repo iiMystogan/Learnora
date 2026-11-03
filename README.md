@@ -1,6 +1,6 @@
-# Xerte Education Platform — demo
+# Learnora — Onderwijsplatform
 
-This repository contains a demonstrator for a class-based assignment and submission workflow. It is intended for local review and discussion with Graafschap College ICT.
+This repository contains a demonstrator for a class-based assignment and submission workflow. It is intended for local review and evaluation by education organisations.
 
 ## Run the demo from Command Prompt (Windows)
 
@@ -10,8 +10,8 @@ Open Command Prompt and paste:
 
 ```cmd
 cd /d "%USERPROFILE%"
-git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Xerte-file-manager.git Xerte-file-manager-demo
-cd Xerte-file-manager-demo
+git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Learnora-file-manager.git Learnora-demo
+cd Learnora-demo
 npm install
 npm run dev
 ```
@@ -23,7 +23,7 @@ When the app starts, open **http://localhost:3000** in your browser. Keep the Co
 After the first setup, you do not need to clone or install again. Open Command Prompt and run:
 
 ```cmd
-cd /d "%USERPROFILE%\\Xerte-file-manager-demo"
+cd /d "%USERPROFILE%\\Learnora-demo"
 git pull --ff-only
 npm run dev
 ```
@@ -63,9 +63,9 @@ Before any real deployment, involve ICT/security/privacy stakeholders and comple
 ## Planned Entra ID transition
 
 Authentication is deliberately isolated behind the session/login endpoints. A future Microsoft Entra ID OpenID Connect integration should:
-1. Authenticate the user with the Graafschap tenant.
+1. Authenticate the user with the organisatie-tenant.
 2. Map the immutable Entra tenant/object identity to an internal `users` record (do not use email as the permanent identifier).
 3. Keep the platform's role, class membership, assignment and submission authorization in this application's database.
 4. Remove local password login and local account provisioning for production, with controlled admin/invitation provisioning.
 
-The current local demo is not yet wired to Entra ID and does not imply that the school has approved an app registration.
+The current local demo is not yet wired to Entra ID and does not imply that the organisation has approved an app registration.
