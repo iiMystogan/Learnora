@@ -119,6 +119,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const teacherVisser = await login('docent.visser@demo.local', 'Teacher123!');
     const studentNoor = await login('student.noor@demo.local', 'Student123!');
     const studentSara = await login('student.sara@demo.local', 'Student123!');
+    assert.equal((await request('/api/me', { cookie: teacherJansen })).status, 200);
+    assert.equal((await request('/api/me', { cookie: studentNoor })).status, 200);
 
     // Class lists and class detail endpoints must be scoped to the current user.
     const adminClassesResponse = await request('/api/classes', { cookie: admin });
@@ -153,6 +155,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     });
     assert.equal(createShared.status, 200);
     const sharedAssignment = await createShared.json() as { id: number };
+    assert.equal((await request('/api/assignments', { cookie: admin })).status, 200,
+      'admin can list all assignments');
     assert.equal((await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: admin })).status, 200,
       'admin can view progress for an existing assignment');
     assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
@@ -346,6 +350,17 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     });
     assert.equal(createClass.status, 200);
     const testClass = await createClass.json() as { id: number };
+    const adminClassResponse = await request('/api/classes', {
+      method: 'POST', cookie: admin,
+      body: { name: 'Admin Testklas', yearGroup: '2026–2027', teacherId: 2 },
+    });
+    assert.equal(adminClassResponse.status, 200, 'admin can create a class and assign an active teacher');
+    const adminClass = await adminClassResponse.json() as { id: number };
+    assert.equal((await request(`/api/classes/${adminClass.id}/students`, { cookie: teacherJansen })).status, 200);
+    assert.equal((await request(`/api/classes/${adminClass.id}/students`, {
+      method: 'POST', cookie: admin,
+      body: { email: 'admin.enrolled@demo.local', displayName: 'Admin Enrolled Student' },
+    })).status, 200, 'admin can enroll a student in a class');
     assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: teacherVisser })).status, 403);
     assert.equal((await request(`/api/classes/${testClass.id}/students`, { cookie: admin })).status, 200,
       'admin can inspect any existing class');
@@ -466,6 +481,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       body: { name: 'Invalid teacher assignment', teacherId: seededStudent.id },
     })).status, 400, 'admin must not assign a student account as a class teacher');
     assert.equal((await request('/api/admin/audit', { cookie: teacherJansen })).status, 403);
+    assert.equal((await request('/api/admin/audit', { cookie: studentNoor })).status, 403);
     assert.equal((await request('/api/admin/users', { cookie: studentNoor })).status, 403);
     const adminCreateUser = await request('/api/admin/users', {
       method: 'POST',
