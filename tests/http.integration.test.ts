@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -190,8 +190,9 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       testDb.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,3)').run(mediaClass.id);
 
       testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
-      assert.equal((await request('/api/assignments', { cookie: studentSara })).then(r => r.json()).then((r: any[]) =>
-        r.some(item => item.id === sharedAssignment.id)), false,
+      const removedStudentAssignmentsResponse = await request('/api/assignments', { cookie: studentSara });
+      const removedStudentAssignments = await removedStudentAssignmentsResponse.json() as Array<{ id: number }>;
+      assert.equal(removedStudentAssignments.some(item => item.id === sharedAssignment.id), false,
         'a student removed from a class must no longer see its assignments');
       assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
         method: 'POST', cookie: studentSara, body: new FormData(),
@@ -204,6 +205,56 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: teacherVisser })).status, 403,
         'a teacher must lose access to the submission when its assignment is moved away from their class');
       testDb.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)').run(sharedAssignment.id, mediaClass.id);
+
+      // Hold a multipart upload open after authorization passed and the file stream started.
+      // Revoke class membership while Multer is still receiving bytes; the post-upload check must reject it.
+      const uploadDir = path.join(tempDir, 'uploads');
+      const filesBeforeRace = new Set(await readdir(uploadDir));
+      const boundary = '----LearnoraAuthorizationRace';
+      const encoder = new TextEncoder();
+      let uploadController: ReadableStreamDefaultController<Uint8Array>;
+      let signalUploadStarted!: () => void;
+      let releaseUpload!: () => void;
+      const uploadStarted = new Promise<void>((resolve) => { signalUploadStarted = resolve; });
+      const uploadGate = new Promise<void>((resolve) => { releaseUpload = resolve; });
+      const streamedBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          uploadController = controller;
+          controller.enqueue(encoder.encode(
+            `--${boundary}\\r\\nContent-Disposition: form-data; name="file"; filename="race.pdf"\\r\\nContent-Type: application/pdf\\r\\n\\r\\n%PDF-1.4\\npartial`,
+          ));
+          signalUploadStarted();
+        },
+      });
+      const raceUpload = fetch(`${baseUrl}/api/assignments/${sharedAssignment.id}/submit`, {
+        method: 'POST',
+        headers: { Cookie: studentSara, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body: streamedBody,
+        duplex: 'half',
+      } as RequestInit);
+      try {
+        await uploadStarted;
+        let partialFileWritten = false;
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+          const currentFiles = await readdir(uploadDir);
+          if (currentFiles.some((name) => !filesBeforeRace.has(name))) {
+            partialFileWritten = true;
+            break;
+          }
+          await wait(10);
+        }
+        assert.equal(partialFileWritten, true, 'Multer must be actively receiving the upload before membership changes');
+        testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
+        releaseUpload();
+        uploadController.enqueue(encoder.encode(`\\r\\n--${boundary}--\\r\\n`));
+        uploadController.close();
+        const raceResponse = await raceUpload;
+        assert.equal(raceResponse.status, 403,
+          'an upload must be rejected when class authorization is revoked while bytes are being received');
+      } finally {
+        releaseUpload();
+      }
+      testDb.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,6)').run(mediaClass.id);
     } finally {
       testDb.close();
     }
