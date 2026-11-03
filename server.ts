@@ -574,6 +574,42 @@ app.get('/api/admin/overview',authenticate,requireRole('admin'),(_req,res)=>{
 app.get('/api/admin/users',authenticate,requireRole('admin'),(_req,res)=>{
   res.json(db.prepare('SELECT id,email,display_name displayName,role,active,last_login lastLogin,created_at createdAt FROM users ORDER BY role,display_name').all());
 });
+app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<=0) return res.status(400).json({error:'Ongeldig gebruikers-ID.'});
+  const target=db.prepare('SELECT id,email,display_name,role,active FROM users WHERE id=?').get(id) as any;
+  if(!target) return res.status(404).json({error:'Gebruiker niet gevonden.'});
+
+  const updates:{role?:string;active?:number;password_hash?:string}={};
+  if(Object.prototype.hasOwnProperty.call(req.body,'role')){
+    if(!['admin','teacher','student'].includes(req.body.role)) return res.status(400).json({error:'Ongeldige gebruikersrol.'});
+    if(req.body.role!==target.role) updates.role=req.body.role;
+  }
+  if(Object.prototype.hasOwnProperty.call(req.body,'active')){
+    if(typeof req.body.active!=='boolean') return res.status(400).json({error:'De accountstatus moet actief of inactief zijn.'});
+    if(Number(req.body.active)!==target.active) updates.active=Number(req.body.active);
+  }
+  if(Object.prototype.hasOwnProperty.call(req.body,'password') && req.body.password!==''){
+    if(typeof req.body.password!=='string'||Buffer.byteLength(req.body.password,'utf8')<8||Buffer.byteLength(req.body.password,'utf8')>1024)
+      return res.status(400).json({error:'Het wachtwoord moet minimaal 8 en maximaal 1024 bytes bevatten.'});
+    updates.password_hash=bcrypt.hashSync(req.body.password,10);
+  }
+  const changed=Object.keys(updates);
+  if(!changed.length) return res.status(400).json({error:'Er zijn geen geldige accountwijzigingen opgegeven.'});
+  if(id===req.user.id && (updates.active===0 || (updates.role!==undefined && updates.role!=='admin')))
+    return res.status(400).json({error:'Je kunt je eigen beheerdersaccount niet deactiveren of van beheerdersrol veranderen.'});
+
+  const updateUser=db.transaction(()=>{
+    const fields=Object.keys(updates);
+    const assignments=fields.map(field=>field+'=?').join(',');
+    db.prepare(`UPDATE users SET ${assignments} WHERE id=?`).run(...fields.map(field=>(updates as any)[field]),id);
+    db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(id);
+    audit(req.user.id,'user.security_updated','user',id,changed.join(','));
+  });
+  updateUser();
+  if(id===req.user.id) res.clearCookie('session',{path:'/'});
+  res.json({success:true,sessionsRevoked:true,reauthenticate:id===req.user.id});
+});
 app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
   const email=String(req.body.email||'').trim().toLowerCase(), name=String(req.body.displayName||'').trim();
   const role=String(req.body.role||'');
