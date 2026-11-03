@@ -232,7 +232,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
 
     // Dashboard data must be role- and class-scoped.
     const jansenDashboardResponse = await request('/api/dashboard', { cookie: teacherJansen });
-    assert.equal(jansenDashboardResponse.status, 200, 'teacher dashboard: ' + (await jansenDashboardResponse.text()).slice(0, 1000));
+    assert.equal(jansenDashboardResponse.status, 200, 'teacher dashboard: ' + (await jansenDashboardResponse.clone().text()).slice(0, 1000));
     const jansenDashboard = await jansenDashboardResponse.json() as {
       classes: Array<{ name: string }>;
       assignments: Array<{ title: string }>;
@@ -240,7 +240,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.ok(jansenDashboard.classes.every((item) => item.name === 'ICT 2A' || item.name === 'HTTP Testklas'));
     assert.equal(jansenDashboard.assignments.some((item) => item.title === 'Portfolio media'), false);
     const noorDashboardResponse = await request('/api/dashboard', { cookie: studentNoor });
-    assert.equal(noorDashboardResponse.status, 200, 'student dashboard: ' + (await noorDashboardResponse.text()).slice(0, 1000));
+    assert.equal(noorDashboardResponse.status, 200, 'student dashboard: ' + (await noorDashboardResponse.clone().text()).slice(0, 1000));
     const noorDashboard = await noorDashboardResponse.json() as {
       classes: Array<{ name: string }>;
       assignments: Array<{ title: string }>;
