@@ -1,1 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Staatliches&display=swap');
 @import "tailwindcss";
+
+:root {
+  font-family: 'Kiro', Arial, sans-serif;
+  color: #30366f;
+  background: #f5f6fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Kiro', Arial, sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-staatliches {
+  font-family: 'Staatliches', sans-serif;
+  font-weight: 400;
+}
