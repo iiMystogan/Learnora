@@ -19,7 +19,10 @@ if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 
   throw new Error('Production requires a JWT_SECRET of at least 32 characters.');
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'local-demo-only-change-this-secret-before-deployment';
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-user-password',10);
 const app = express();
+// Railway terminates the public connection at one trusted proxy; use its forwarded client IP.
+app.set('trust proxy', 1);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -99,6 +102,13 @@ CREATE TABLE IF NOT EXISTS sessions (
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS login_rate_limits (
+ bucket_key TEXT PRIMARY KEY,
+ window_started_at INTEGER NOT NULL,
+ attempts INTEGER NOT NULL,
+ blocked_until INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_login_rate_limits_window ON login_rate_limits(window_started_at);
 `);
 
 const count = (sql: string) => (db.prepare(sql).get() as any).n as number;
@@ -184,12 +194,72 @@ const canSeeAssignment = (user: any, assignmentId: number) => {
 };
 
 
-app.post('/api/login',(req,res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
+const LOGIN_RATE_WINDOW_SECONDS = 15 * 60;
+const LOGIN_RATE_LIMITS = { identity: 10, ip: 30 } as const;
+let loginRequestCount = 0;
+
+const loginBucketKey = (kind: 'identity'|'ip', value: string) =>
+  `${kind}:${crypto.createHmac('sha256', JWT_SECRET).update(value).digest('hex')}`;
+
+const getBlockedUntil = (keys: string[], now: number): number | null => {
+  const placeholders = keys.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT blocked_until FROM login_rate_limits
+    WHERE bucket_key IN (${placeholders}) AND blocked_until>?`).all(...keys,now) as Array<{blocked_until:number}>;
+  return rows.reduce<number|null>((latest,row) =>
+    latest===null || row.blocked_until>latest ? row.blocked_until : latest, null);
+};
+
+const recordLoginFailures = (buckets: Array<{key:string;limit:number}>, now: number) => {
+  const record = db.prepare('SELECT window_started_at,attempts FROM login_rate_limits WHERE bucket_key=?');
+  const upsert = db.prepare(`INSERT INTO login_rate_limits(bucket_key,window_started_at,attempts,blocked_until)
+    VALUES(?,?,?,?) ON CONFLICT(bucket_key) DO UPDATE SET
+    window_started_at=excluded.window_started_at,attempts=excluded.attempts,blocked_until=excluded.blocked_until`);
+  const update = db.transaction(() => {
+    for (const bucket of buckets) {
+      const previous = record.get(bucket.key) as {window_started_at:number;attempts:number}|undefined;
+      const expired = !previous || now-previous.window_started_at>=LOGIN_RATE_WINDOW_SECONDS;
+      const windowStartedAt = expired ? now : previous.window_started_at;
+      const attempts = expired ? 1 : previous.attempts+1;
+      const blockedUntil = attempts>=bucket.limit ? now+LOGIN_RATE_WINDOW_SECONDS : null;
+      upsert.run(bucket.key,windowStartedAt,attempts,blockedUntil);
+    }
+  });
+  update();
+};
+
+app.post('/api/login',(req:any,res:any) => {
+  const email = String(req.body.email || '').trim().toLowerCase().slice(0,254);
   const password = String(req.body.password || '');
+  const clientIp = String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0,128);
+  const identityKey = loginBucketKey('identity',`${clientIp}\\0${email}`);
+  const ipKey = loginBucketKey('ip',clientIp);
+  const now = Math.floor(Date.now()/1000);
+  loginRequestCount += 1;
+  if (loginRequestCount%100===0) {
+    db.prepare('DELETE FROM login_rate_limits WHERE window_started_at<? AND (blocked_until IS NULL OR blocked_until<=?)')
+      .run(now-24*60*60,now);
+  }
+
+  const blockedUntil = getBlockedUntil([identityKey,ipKey],now);
+  if (blockedUntil!==null) {
+    res.setHeader('Retry-After',String(Math.max(1,blockedUntil-now)));
+    res.setHeader('Cache-Control','no-store');
+    return res.status(429).json({error:'Te veel mislukte inlogpogingen. Probeer het later opnieuw.'});
+  }
+
   const user = db.prepare('SELECT * FROM users WHERE email=?').get(email) as any;
-  if (!user || !user.active || !bcrypt.compareSync(password,user.password_hash))
+  const passwordHash = user && user.active ? user.password_hash : DUMMY_PASSWORD_HASH;
+  const passwordMatches = bcrypt.compareSync(password,passwordHash);
+  if (!user || !user.active || !passwordMatches) {
+    recordLoginFailures([
+      {key:identityKey,limit:LOGIN_RATE_LIMITS.identity},
+      {key:ipKey,limit:LOGIN_RATE_LIMITS.ip},
+    ],now);
+    res.setHeader('Cache-Control','no-store');
     return res.status(401).json({error:'E-mailadres of wachtwoord klopt niet.'});
+  }
+  db.prepare('DELETE FROM login_rate_limits WHERE bucket_key=?').run(identityKey);
+  res.setHeader('Cache-Control','no-store');
   db.prepare('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?').run(user.id);
   const jti = crypto.randomUUID();
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
