@@ -93,3 +93,7 @@ Authentication is deliberately isolated behind the session/login endpoints. A fu
 4. Remove local password login and local account provisioning for production, with controlled admin/invitation provisioning.
 
 The current local demo is not yet wired to Entra ID and does not imply that the organisation has approved an app registration.
+
+## Network security
+
+See [security/NETWORKING.md](security/NETWORKING.md) for the current private-network inventory, internal-service trust rules, client-IP rate-limit configuration and hosting-portability requirements. Review it before adding services or changing the hosting provider.
