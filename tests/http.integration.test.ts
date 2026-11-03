@@ -304,7 +304,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       });
       const raceUpload = fetch(`${baseUrl}/api/assignments/${sharedAssignment.id}/submit`, {
         method: 'POST',
-        headers: { Cookie: studentSara, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        headers: {
+          Cookie: [studentSara, csrf.cookie].join('; '),
+          'X-CSRF-Token': csrf.token,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
         body: streamedBody,
         duplex: 'half',
       } as RequestInit);
