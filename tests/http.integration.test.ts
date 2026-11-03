@@ -180,7 +180,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/me',{cookie:afterPasswordChange})).status,401,'reactivation must not revive revoked sessions');
     assert.equal((await request(`/api/admin/users/${managedUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{role:'superuser'}})).status,400);
     assert.equal((await request('/api/admin/users/not-a-number',{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400);
-    assert.equal((await request(`/api/admin/users/${secondAdminSession}`,{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400);
+    const adminUserRows=await (await request('/api/admin/users',{cookie:secondAdminSession})).json() as Array<{id:number;email:string}>;
+    const adminUserId=adminUserRows.find(item=>item.email==='admin@demo.local')!.id;
+    assert.equal((await request(`/api/admin/users/${adminUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400,
+      'an administrator cannot deactivate their own account');
 
     admin = await login('admin@demo.local', 'Admin123!');
     const teacherJansen = await login('docent.jansen@demo.local', 'Teacher123!');
