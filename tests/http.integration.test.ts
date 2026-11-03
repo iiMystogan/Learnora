@@ -500,6 +500,50 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       cookie: studentNoor,
       body: { email: 'student-forbidden@demo.local', displayName: 'Forbidden', role: 'student', password: 'SecurePass123!' },
     })).status, 403);
+
+    // Login throttling is scoped by client IP and normalized email, not by account alone.
+    const limitedIp = '198.51.100.20';
+    for (let attempt=0; attempt<10; attempt+=1) {
+      const failedLogin = await fetch(`${baseUrl}/api/login`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Forwarded-For':limitedIp},
+        body:JSON.stringify({email:'admin@demo.local',password:'wrong-password'}),
+      });
+      assert.equal(failedLogin.status,401,`failed attempt ${attempt+1} should retain the generic credential response`);
+    }
+    const blockedLogin = await fetch(`${baseUrl}/api/login`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Forwarded-For':limitedIp},
+      body:JSON.stringify({email:'ADMIN@DEMO.LOCAL',password:'Admin123!'}),
+    });
+    assert.equal(blockedLogin.status,429,'the next attempt must be rate limited');
+    assert.ok(Number(blockedLogin.headers.get('retry-after'))>0,'429 must include a Retry-After value');
+    assert.match(await blockedLogin.text(),/Te veel mislukte inlogpogingen/);
+
+    const differentIpLogin = await fetch(`${baseUrl}/api/login`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Forwarded-For':'198.51.100.21'},
+      body:JSON.stringify({email:'admin@demo.local',password:'Admin123!'}),
+    });
+    assert.equal(differentIpLogin.status,200,
+      'a failed-login bucket for one IP must not lock the account for every other IP');
+
+    // The independent IP ceiling prevents an attacker rotating email addresses from bypassing throttling.
+    const ipOnly='198.51.100.30';
+    for (let attempt=0; attempt<30; attempt+=1) {
+      const failedLogin = await fetch(`${baseUrl}/api/login`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Forwarded-For':ipOnly},
+        body:JSON.stringify({email:`unknown-${attempt}@demo.local`,password:'wrong-password'}),
+      });
+      assert.equal(failedLogin.status,401,`IP attempt ${attempt+1} should be accepted before the ceiling`);
+    }
+    const ipBlockedLogin = await fetch(`${baseUrl}/api/login`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Forwarded-For':ipOnly},
+      body:JSON.stringify({email:'another-unknown@demo.local',password:'wrong-password'}),
+    });
+    assert.equal(ipBlockedLogin.status,429,'the IP-wide ceiling must apply across different email addresses');
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
