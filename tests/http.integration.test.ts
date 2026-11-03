@@ -452,7 +452,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/api/classes/${testClass.id}/students`, {
       method: 'POST',
       cookie: teacherJansen,
-      body: { email: 'new.student@demo.local', displayName: 'Nieuwe student' },
+      body: { email: 'new.student@demo.local', displayName: 'Nieuwe student', password: 'NewStudentPass123!' },
     })).status, 200);
     const enrolled = await (await request(`/api/classes/${testClass.id}/students`, { cookie: teacherJansen })).json() as Array<{ email: string }>;
     assert.equal(enrolled.some((item) => item.email === 'new.student@demo.local'), true);
