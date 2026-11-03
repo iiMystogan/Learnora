@@ -51,3 +51,47 @@ export function canSeeSubmission(
     `).get(user.id, submissionId)
   );
 }
+
+
+/**
+ * A teacher may delete an assignment only when every class linked to it
+ * belongs to that teacher. Deleting the assignment itself cascades to all
+ * linked classes, so checking only one accessible class is insufficient.
+ */
+export function canDeleteAssignment(
+  db: AuthorizationDb,
+  user: AuthorizationUser,
+  assignmentId: number
+): boolean {
+  if (user.role === 'admin') {
+    return Boolean(
+      db.prepare('SELECT 1 FROM assignments WHERE id = ?').get(assignmentId)
+    );
+  }
+
+  if (user.role !== 'teacher') {
+    return false;
+  }
+
+  return Boolean(
+    db.prepare(`
+      SELECT 1
+      FROM assignments a
+      WHERE a.id = ?
+        AND EXISTS (
+          SELECT 1 FROM assignment_classes ac
+          WHERE ac.assignment_id = a.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM assignment_classes ac
+          LEFT JOIN class_teachers ct
+            ON ct.class_id = ac.class_id
+           AND ct.teacher_id = ?
+          WHERE ac.assignment_id = a.id
+            AND ct.class_id IS NULL
+        )
+      LIMIT 1
+    `).get(assignmentId, user.id)
+  );
+}
