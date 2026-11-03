@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
+import { isIP } from 'node:net';
 import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,8 +22,9 @@ if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 
 const JWT_SECRET = process.env.JWT_SECRET || 'local-demo-only-change-this-secret-before-deployment';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-user-password',10);
 const app = express();
-// Railway terminates the public connection at one trusted proxy; use its forwarded client IP.
-app.set('trust proxy', 1);
+// Railway's public HTTP edge overwrites X-Real-IP. Do not trust X-Forwarded-For:
+// Railway does not guarantee a fixed proxy hop count. Private-network traffic must not be
+// exposed to untrusted callers because it bypasses the public edge's header sanitization.
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -228,9 +230,14 @@ const recordLoginFailures = (buckets: Array<{key:string;limit:number}>, now: num
 };
 
 app.post('/api/login',(req:any,res:any) => {
-  const email = String(req.body.email || '').trim().toLowerCase().slice(0,254);
-  const password = String(req.body.password || '');
-  const clientIp = String(req.ip || req.socket?.remoteAddress || 'unknown').slice(0,128);
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase().slice(0,254) : '';
+  const suppliedPassword = typeof req.body.password === 'string' ? req.body.password : '';
+  const passwordTooLong = Buffer.byteLength(suppliedPassword, 'utf8') > 1024;
+  const password = passwordTooLong ? '' : suppliedPassword;
+  const railwayClientIp = req.get('x-real-ip');
+  const clientIp = typeof railwayClientIp === 'string' && isIP(railwayClientIp.trim())
+    ? railwayClientIp.trim()
+    : String(req.socket?.remoteAddress || 'unknown').slice(0,128);
   const identityKey = loginBucketKey('identity',`${clientIp}\\0${email}`);
   const ipKey = loginBucketKey('ip',clientIp);
   const now = Math.floor(Date.now()/1000);
@@ -248,9 +255,9 @@ app.post('/api/login',(req:any,res:any) => {
   }
 
   const user = db.prepare('SELECT * FROM users WHERE email=?').get(email) as any;
-  const passwordHash = user && user.active ? user.password_hash : DUMMY_PASSWORD_HASH;
+  const passwordHash = user && user.active && !passwordTooLong ? user.password_hash : DUMMY_PASSWORD_HASH;
   const passwordMatches = bcrypt.compareSync(password,passwordHash);
-  if (!user || !user.active || !passwordMatches) {
+  if (!user || !user.active || passwordTooLong || !passwordMatches) {
     recordLoginFailures([
       {key:identityKey,limit:LOGIN_RATE_LIMITS.identity},
       {key:ipKey,limit:LOGIN_RATE_LIMITS.ip},
