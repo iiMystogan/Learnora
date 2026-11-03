@@ -106,6 +106,10 @@ Bij wijzigingen van gebruikersrol, accountstatus of wachtwoord worden alle besta
 
 Nieuwe accounts en wachtwoordwijzigingen vereisen minimaal 12 tekens en maximaal 1024 UTF-8-bytes. Lange wachtwoordzinnen zijn toegestaan; er is geen verplichte combinatie van hoofdletters, cijfers of symbolen. Een lokale denylist blokkeert daarnaast een aantal bekende, veelgebruikte wachtwoorden en eenvoudige patronen. Bestaande demo-accounts behouden hun huidige wachtwoord totdat dat wordt gewijzigd. Zie [security/PASSWORDS.md](security/PASSWORDS.md).
 
+## Wachtwoordherstel
+
+Selfservice-wachtwoordherstel via e-mail is nog niet ingeschakeld, omdat er geen e-mailprovider of geverifieerde afzender is geconfigureerd. Een beheerder kan voorlopig een nieuw wachtwoord instellen; daarbij worden alle bestaande sessies ingetrokken. Zie [security/PASSWORD-RESET.md](security/PASSWORD-RESET.md) voor de veilige ontwerpvoorwaarden voordat e-mailherstel wordt toegevoegd.
+
 ## CSRF-bescherming
 
 Alle API-verzoeken die gegevens wijzigen (zoals POST, PUT, PATCH en DELETE) vereisen een geldig, ondertekend CSRF-token. De frontend haalt dit token op via `GET /api/csrf` en stuurt het bij mutaties mee in de header `X-CSRF-Token`. Het token moet overeenkomen met de host-only `learnora_csrf`-cookie. De handtekening wordt met `JWT_SECRET` gecontroleerd; het token wordt niet als authenticatiemiddel gebruikt.
