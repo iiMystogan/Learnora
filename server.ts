@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
+import { canSeeSubmission } from './security/authorization.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -153,13 +154,7 @@ const canSeeAssignment = (user: any, assignmentId: number) => {
   return !!db.prepare(`SELECT 1 FROM assignment_classes ac JOIN class_students cs ON cs.class_id=ac.class_id
     WHERE ac.assignment_id=? AND cs.student_id=?`).get(assignmentId,user.id);
 };
-const canSeeSubmission = (user: any, submissionId: number) => {
-  const row = db.prepare('SELECT assignment_id,student_id FROM submissions WHERE id=?').get(submissionId) as any;
-  if (!row) return false;
-  if (user.role === 'admin') return true;
-  if (user.role === 'student') return row.student_id === user.id;
-  return canSeeAssignment(user,row.assignment_id);
-};
+
 
 app.post('/api/login',(req,res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
