@@ -263,6 +263,15 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       body: { title: 'Malformed class ID', classIds: ['not-a-number'] },
     })).status, 400);
 
+    // Every numeric resource route should reject malformed IDs consistently.
+    assert.equal((await request('/api/assignments/not-a-number', { method: 'DELETE', cookie: admin })).status, 400);
+    assert.equal((await request('/api/assignments/not-a-number/submit', { method: 'POST', cookie: studentSara, body: new FormData() })).status, 400);
+    assert.equal((await request('/api/submissions/not-a-number/feedback', {
+      method: 'POST', cookie: teacherVisser, body: { comments: 'Test' },
+    })).status, 400);
+    assert.equal((await request('/api/submissions/not-a-number/download', { cookie: admin })).status, 400);
+    assert.equal((await request('/api/submissions/999999/download', { cookie: admin })).status, 404);
+
     // Feedback validation and student write access.
     assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
       method: 'POST',
