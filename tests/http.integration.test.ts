@@ -185,6 +185,29 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/api/admin/users/${adminUserId}`,{method:'PATCH',cookie:secondAdminSession,body:{active:false}})).status,400,
       'an administrator cannot deactivate their own account');
 
+    const selfServiceCreate=await request('/api/admin/users',{method:'POST',cookie:secondAdminSession,body:{
+      email:'self.change@demo.local',displayName:'Self Service',role:'student',password:'SelfServiceStart123!',
+    }});
+    assert.equal(selfServiceCreate.status,200);
+    const selfServiceSession=await login('self.change@demo.local','SelfServiceStart123!');
+    assert.equal((await request('/api/account/password',{method:'POST',cookie:selfServiceSession,body:{
+      currentPassword:'wrong-current-password',newPassword:'SelfServiceChanged123!',
+    }})).status,400,'self-service change must verify the current password');
+    assert.equal((await request('/api/account/password',{method:'POST',cookie:selfServiceSession,body:{
+      currentPassword:'SelfServiceStart123!',newPassword:'Short123!xx',
+    }})).status,400,'self-service change must enforce the shared password policy');
+    assert.equal((await request('/api/account/password',{method:'POST',cookie:selfServiceSession,body:{
+      currentPassword:'SelfServiceStart123!',newPassword:'SelfServiceStart123!',
+    }})).status,400,'self-service change must reject reusing the current password');
+    const selfServiceChange=await request('/api/account/password',{method:'POST',cookie:selfServiceSession,body:{
+      currentPassword:'SelfServiceStart123!',newPassword:'SelfServiceChanged123!',
+    }});
+    assert.equal(selfServiceChange.status,200);
+    assert.equal((await selfServiceChange.json() as {reauthenticate:boolean}).reauthenticate,true);
+    assert.equal((await request('/api/me',{cookie:selfServiceSession})).status,401,'self-service change revokes the current session');
+    assert.equal(await login('self.change@demo.local','SelfServiceStart123!').catch(()=>''),'','the previous password must stop working');
+    assert.ok(await login('self.change@demo.local','SelfServiceChanged123!'),'the new password must authenticate');
+
     admin = await login('admin@demo.local', 'Admin123!');
     const teacherJansen = await login('docent.jansen@demo.local', 'Teacher123!');
     const teacherVisser = await login('docent.visser@demo.local', 'Teacher123!');
