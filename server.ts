@@ -478,3 +478,24 @@ app.use((err: any, req: any, res: any, next: any) => {
     const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
     const message = err.code === 'LIMIT_FILE_SIZE'
       ? 'Het bestand is groter dan 20 MB.'
+      : 'Het uploadverzoek is ongeldig.';
+    return res.status(status).json({ error: message });
+  }
+
+  console.error('API request failed:', err);
+  return res.status(500).json({ error: 'Er is een interne fout opgetreden.' });
+});
+
+async function startServer(){
+  const port=Number(process.env.PORT||3000);
+  if(!isProduction){
+    const vite=await createViteServer({server:{middlewareMode:true},appType:'spa'});
+    app.use(vite.middlewares);
+  }else{
+    const dist=path.join(process.cwd(),'dist');
+    app.use(express.static(dist));
+    app.get('*',(_req,res)=>res.sendFile(path.join(dist,'index.html')));
+  }
+  app.listen(port,'0.0.0.0',()=>console.log('Learnora draait op http://localhost:'+port));
+}
+startServer();
