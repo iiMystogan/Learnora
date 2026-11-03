@@ -20,7 +20,7 @@ if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 
 const JWT_SECRET = process.env.JWT_SECRET || 'local-demo-only-change-this-secret-before-deployment';
 const app = express();
 
-db.exec(\`
+db.exec(`
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
  details TEXT DEFAULT '',
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-\`);
+`);
 
 const count = (sql: string) => (db.prepare(sql).get() as any).n as number;
 const insertUser = db.prepare('INSERT OR IGNORE INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)');
@@ -148,10 +148,10 @@ const canTeachClass = (teacherId: number, classId: number) =>
   !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=?').get(teacherId,classId);
 const canSeeAssignment = (user: any, assignmentId: number) => {
   if (user.role === 'admin') return true;
-  if (user.role === 'teacher') return !!db.prepare(\`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
-    JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE a.id=? AND ct.teacher_id=?\`).get(assignmentId,user.id);
-  return !!db.prepare(\`SELECT 1 FROM assignment_classes ac JOIN class_students cs ON cs.class_id=ac.class_id
-    WHERE ac.assignment_id=? AND cs.student_id=?\`).get(assignmentId,user.id);
+  if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
+    JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE a.id=? AND ct.teacher_id=?`).get(assignmentId,user.id);
+  return !!db.prepare(`SELECT 1 FROM assignment_classes ac JOIN class_students cs ON cs.class_id=ac.class_id
+    WHERE ac.assignment_id=? AND cs.student_id=?`).get(assignmentId,user.id);
 };
 const canSeeSubmission = (user: any, submissionId: number) => {
   const row = db.prepare('SELECT assignment_id,student_id FROM submissions WHERE id=?').get(submissionId) as any;
@@ -178,35 +178,35 @@ app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,ema
 app.get('/api/dashboard',authenticate,(req:any,res)=>{
   const u=req.user;
   if(u.role==='student'){
-    const assignments=db.prepare(\`SELECT a.*, c.name AS class_name, s.id AS submission_id,s.submitted_at,
+    const assignments=db.prepare(`SELECT a.*, c.name AS class_name, s.id AS submission_id,s.submitted_at,
       f.status AS review_status,f.comments,f.grade
       FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
       JOIN classes c ON c.id=ac.class_id JOIN class_students cs ON cs.class_id=c.id
       LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=?
       LEFT JOIN feedback f ON f.submission_id=s.id
-      WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline IS NULL,a.deadline\`).all(u.id,u.id);
+      WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline IS NULL,a.deadline`).all(u.id,u.id);
     return res.json({assignments,classes:db.prepare('SELECT c.* FROM classes c JOIN class_students cs ON cs.class_id=c.id WHERE cs.student_id=?').all(u.id)});
   }
   const classWhere=u.role==='admin'?'':'WHERE ct.teacher_id=?';
-  const classes=db.prepare(\`SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
+  const classes=db.prepare(`SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
     \${u.role==='admin'?'LEFT JOIN class_teachers ct ON ct.class_id=c.id':'JOIN class_teachers ct ON ct.class_id=c.id'}
-    LEFT JOIN class_students cs ON cs.class_id=c.id \${classWhere} GROUP BY c.id ORDER BY c.name\`).all(...(u.role==='admin'?[]:[u.id]));
-  const assignmentSql=u.role==='admin'?\`SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id LEFT JOIN submissions s ON s.assignment_id=a.id GROUP BY a.id ORDER BY a.created_at DESC\`:
-    \`SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN class_teachers ct ON ct.class_id=ac.class_id LEFT JOIN submissions s ON s.assignment_id=a.id WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC\`;
+    LEFT JOIN class_students cs ON cs.class_id=c.id \${classWhere} GROUP BY c.id ORDER BY c.name`).all(...(u.role==='admin'?[]:[u.id]));
+  const assignmentSql=u.role==='admin'?`SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id LEFT JOIN submissions s ON s.assignment_id=a.id GROUP BY a.id ORDER BY a.created_at DESC`:
+    `SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN class_teachers ct ON ct.class_id=ac.class_id LEFT JOIN submissions s ON s.assignment_id=a.id WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
   const assignments=db.prepare(assignmentSql).all(...(u.role==='admin'?[]:[u.id]));
-  const totals=db.prepare(\`SELECT COUNT(DISTINCT a.id) assignments,COUNT(DISTINCT s.id) submissions,
+  const totals=db.prepare(`SELECT COUNT(DISTINCT a.id) assignments,COUNT(DISTINCT s.id) submissions,
     COUNT(DISTINCT cs.student_id) students FROM assignments a
     LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id
     LEFT JOIN class_students cs ON cs.class_id=ac.class_id
     LEFT JOIN submissions s ON s.assignment_id=a.id
-    \${u.role==='admin'?'':'JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE ct.teacher_id=?'}\`).get(...(u.role==='admin'?[]:[u.id]));
+    \${u.role==='admin'?'':'JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE ct.teacher_id=?'}`).get(...(u.role==='admin'?[]:[u.id]));
   res.json({classes,assignments,totals});
 });
 
 app.get('/api/classes',authenticate,(req:any,res)=>{
-  const sql=req.user.role==='admin'?\`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id GROUP BY c.id ORDER BY c.name\`:
-    req.user.role==='teacher'?\`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c JOIN class_teachers mine ON mine.class_id=c.id LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id WHERE mine.teacher_id=? GROUP BY c.id ORDER BY c.name\`:
-    \`SELECT c.*,'' teachers FROM classes c JOIN class_students cs ON cs.class_id=c.id WHERE cs.student_id=? ORDER BY c.name\`;
+  const sql=req.user.role==='admin'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id GROUP BY c.id ORDER BY c.name`:
+    req.user.role==='teacher'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c JOIN class_teachers mine ON mine.class_id=c.id LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id WHERE mine.teacher_id=? GROUP BY c.id ORDER BY c.name`:
+    `SELECT c.*,'' teachers FROM classes c JOIN class_students cs ON cs.class_id=c.id WHERE cs.student_id=? ORDER BY c.name`;
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
@@ -223,7 +223,7 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
 app.get('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const id=Number(req.params.id);
   if(req.user.role==='teacher'&&!canTeachClass(req.user.id,id)) return res.status(403).json({error:'Deze klas hoort niet bij jouw account.'});
-  const students=db.prepare(\`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? ORDER BY u.display_name\`).all(id);
+  const students=db.prepare(`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? ORDER BY u.display_name`).all(id);
   res.json(students);
 });
 app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
@@ -245,13 +245,13 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
 
 app.get('/api/assignments',authenticate,(req:any,res)=>{
   if(req.user.role==='student'){
-    return res.json(db.prepare(\`SELECT a.*,c.name class_name,s.id submission_id,s.submitted_at,f.status review_status,f.comments,f.grade
+    return res.json(db.prepare(`SELECT a.*,c.name class_name,s.id submission_id,s.submitted_at,f.status review_status,f.comments,f.grade
       FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN classes c ON c.id=ac.class_id
       JOIN class_students cs ON cs.class_id=c.id LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=?
-      LEFT JOIN feedback f ON f.submission_id=s.id WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline\`).all(req.user.id,req.user.id));
+      LEFT JOIN feedback f ON f.submission_id=s.id WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline`).all(req.user.id,req.user.id));
   }
-  const sql=req.user.role==='admin'?\`SELECT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id LEFT JOIN classes c ON c.id=ac.class_id GROUP BY a.id ORDER BY a.created_at DESC\`:
-    \`SELECT DISTINCT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN classes c ON c.id=ac.class_id JOIN class_teachers ct ON ct.class_id=c.id WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC\`;
+  const sql=req.user.role==='admin'?`SELECT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id LEFT JOIN classes c ON c.id=ac.class_id GROUP BY a.id ORDER BY a.created_at DESC`:
+    `SELECT DISTINCT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN classes c ON c.id=ac.class_id JOIN class_teachers ct ON ct.class_id=c.id WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
@@ -287,12 +287,12 @@ app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admi
 });
 
 app.get('/api/submissions',authenticate,(req:any,res)=>{
-  const base=\`SELECT s.id,s.assignment_id,s.student_id,s.original_filename,s.file_size,s.submitted_at,
+  const base=`SELECT s.id,s.assignment_id,s.student_id,s.original_filename,s.file_size,s.submitted_at,
     a.title assignment_title,u.display_name student_name,u.email student_email,c.name class_name,
     f.comments,f.grade,f.status review_status
     FROM submissions s JOIN assignments a ON a.id=s.assignment_id JOIN users u ON u.id=s.student_id
     JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN class_students cs ON cs.class_id=ac.class_id AND cs.student_id=s.student_id
-    JOIN classes c ON c.id=ac.class_id LEFT JOIN feedback f ON f.submission_id=s.id\`;
+    JOIN classes c ON c.id=ac.class_id LEFT JOIN feedback f ON f.submission_id=s.id`;
   const sql=req.user.role==='admin'?base+' ORDER BY s.submitted_at DESC':
     req.user.role==='teacher'?base+' JOIN class_teachers ct ON ct.class_id=c.id WHERE ct.teacher_id=? ORDER BY s.submitted_at DESC':
     base+' WHERE s.student_id=? ORDER BY s.submitted_at DESC';
@@ -314,9 +314,9 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),uploa
   if(!canSeeAssignment(req.user,assignmentId)){fs.unlinkSync(file.path);return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});}
   const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
   if(previous){try{fs.unlinkSync(path.join(uploadDir,previous.stored_filename));}catch{}}
-  const result=db.prepare(\`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
+  const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
     VALUES(?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
-    stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP\`)
+    stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP`)
     .run(assignmentId,req.user.id,file.originalname,file.filename,file.size);
   const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
   audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname);
@@ -327,8 +327,8 @@ app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','adm
   if(!canSeeSubmission(req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
   const comments=String(req.body.comments||'').trim();
   if(!comments) return res.status(400).json({error:'Feedback mag niet leeg zijn.'});
-  db.prepare(\`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
-    ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP\`)
+  db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
+    ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP`)
     .run(id,req.user.id,comments,String(req.body.grade||''));
   audit(req.user.id,'feedback.saved','submission',id);
   res.json({success:true});
@@ -349,7 +349,7 @@ app.get('/api/admin/overview',authenticate,requireRole('admin'),(_req,res)=>{
     classes:db.prepare('SELECT COUNT(*) count FROM classes').get(),
     assignments:db.prepare('SELECT COUNT(*) count FROM assignments').get(),
     submissions:db.prepare('SELECT COUNT(*) count FROM submissions').get(),
-    recent:db.prepare(\`SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id ORDER BY l.created_at DESC LIMIT 20\`).all()
+    recent:db.prepare(`SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id ORDER BY l.created_at DESC LIMIT 20`).all()
   });
 });
 app.get('/api/admin/users',authenticate,requireRole('admin'),(_req,res)=>{
