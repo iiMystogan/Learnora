@@ -2,33 +2,33 @@
 
 This repository contains a demonstrator for a class-based assignment and submission workflow. It is intended for local review and discussion with Graafschap College ICT.
 
-## Run locally
+## Run the demo from Command Prompt (Windows)
 
-Requirements: Node.js 20+ and npm.
+Requirements: **Git**, **Node.js 20+** and **npm**. You do not need to download a ZIP file or manually create/place the project files. Git downloads this demo branch and creates its project folder automatically.
 
-Open Command Prompt (CMD) in the existing project folder and run:
+Open Command Prompt and paste:
 
 ```cmd
+cd /d "%USERPROFILE%"
+git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Xerte-file-manager.git Xerte-file-manager-demo
+cd Xerte-file-manager-demo
+npm install
 npm run dev
 ```
 
-Open http://localhost:3000. The SQLite database is created automatically as `database.sqlite`; uploaded files are stored under `uploads/submissions`.
+When the app starts, open **http://localhost:3000** in your browser. Keep the Command Prompt window open while using the app. Stop it with **Ctrl+C**.
 
-## Update the demo version (Windows CMD)
+### Start the demo again or get updates
 
-This section is intended for your own local setup. You do **not** need to download or clone the repository again. These commands update your existing local copy of the demo branch.
-
-Stop the running app first with **Ctrl+C**.
+After the first setup, you do not need to clone or install again. Open Command Prompt and run:
 
 ```cmd
-cd C:\\Users\\Daan_\\Xerte-file-manager
-git fetch origin
-git switch demo/education-platform
-git pull --ff-only origin demo/education-platform
+cd /d "%USERPROFILE%\\Xerte-file-manager-demo"
+git pull --ff-only
 npm run dev
 ```
 
-Run `npm install` only for the first setup or when project dependencies have changed.
+Only run `npm install` again if project dependencies have changed.
 
 ## Demo accounts
 
