@@ -145,7 +145,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       cookie: studentSara,
       body: form,
     });
-    assert.equal(upload.status, 200, await upload.text());
+    assert.equal(upload.status, 200, 'submission upload returned HTTP ' + upload.status);
     const submission = await upload.json() as { id: number };
 
     // Jansen teaches ICT 2A, not Sara's Media 3B class: no list, feedback or download access.
