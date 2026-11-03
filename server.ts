@@ -136,6 +136,11 @@ if (count('SELECT count(*) AS n FROM users') === 0) {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+// Keep route handlers safe when a request has no JSON body or a non-object body.
+app.use((req: any, _res, next) => {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) req.body = {};
+  next();
+});
 
 type SessionUser = { id: number; email: string; displayName: string; role: 'admin'|'teacher'|'student' };
 const authenticate = (req: any, res: any, next: any) => {
@@ -386,16 +391,26 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
 },upload.single('file'),(req:any,res)=>{
   const assignmentId=Number(req.params.id), file=req.file;
   if(!file) return res.status(400).json({error:'Kies een PDF-, Word- of ZIP-bestand (maximaal 20 MB).'});
-  if(!canSubmitAssignment(db,req.user,assignmentId)){fs.unlinkSync(file.path);return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});}
-  const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
-  if(previous){try{fs.unlinkSync(path.join(uploadDir,previous.stored_filename));}catch{}}
-  const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
-    VALUES(?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
-    stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP`)
-    .run(assignmentId,req.user.id,file.originalname,file.filename,file.size);
-  const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
-  audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname);
-  res.json({success:true,id:row.id});
+  // Re-check authorization inside the same synchronous transaction as the write.
+  // No other request can change class membership or assignment links between this check and INSERT.
+  const saveSubmission = db.transaction(() => {
+    if (!canSubmitAssignment(db,req.user,assignmentId)) return null;
+    const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
+    const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
+      VALUES(?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
+      stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP`)
+      .run(assignmentId,req.user.id,file.originalname,file.filename,file.size);
+    const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
+    audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname);
+    return { id: row.id, previous };
+  });
+  const saved = saveSubmission();
+  if (!saved) {
+    try { fs.unlinkSync(file.path); } catch {}
+    return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});
+  }
+  if(saved.previous){try{fs.unlinkSync(path.join(uploadDir,saved.previous.stored_filename));}catch{}}
+  res.json({success:true,id:saved.id});
 });
 app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
@@ -447,6 +462,30 @@ app.get('/api/admin/audit',authenticate,requireRole('admin'),(_req,res)=>{
 });
 
 app.use('/api',(req,res)=>res.status(404).json({error:'API-endpoint niet gevonden.'}));
+
+// Keep malformed JSON, upload errors and unexpected API failures in a predictable JSON format.
+app.use((err: any, req: any, res: any, next: any) => {
+  if (res.headersSent) return next(err);
+  if (!req.path.startsWith('/api/')) return next(err);
+
+  if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return res.status(400).json({ error: 'Ongeldige JSON-inhoud.' });
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Het verzoek is te groot.' });
+  }
+  if (err instanceof multer.MulterError) {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const message = err.code === 'LIMIT_FILE_SIZE'
+      ? 'Het bestand is groter dan 20 MB.'
+      : 'Het uploadverzoek is ongeldig.';
+    return res.status(status).json({ error: message });
+  }
+
+  console.error('API request failed:', err);
+  return res.status(500).json({ error: 'Er is een interne fout opgetreden.' });
+});
+
 async function startServer(){
   const port=Number(process.env.PORT||3000);
   if(!isProduction){
