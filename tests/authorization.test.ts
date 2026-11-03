@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import Database from 'better-sqlite3';
-import { canDeleteAssignment, canSeeSubmission } from '../security/authorization.ts';
+import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from '../security/authorization.ts';
 
 test('submission authorization is scoped to the teacher and student shared class', () => {
   const db = new Database(':memory:');
@@ -98,6 +98,35 @@ test('teachers can delete only assignments exclusive to their own classes', () =
       'admin cannot delete a non-existent assignment');
     assert.equal(canDeleteAssignment(db, { id: 201, role: 'student' }, 50), false,
       'students cannot delete assignments');
+  } finally {
+    db.close();
+  }
+});
+
+
+test('students can submit only to published assignments in their own classes', () => {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE assignments (id INTEGER PRIMARY KEY, status TEXT NOT NULL);
+    CREATE TABLE assignment_classes (assignment_id INTEGER NOT NULL, class_id INTEGER NOT NULL);
+    CREATE TABLE class_students (class_id INTEGER NOT NULL, student_id INTEGER NOT NULL);
+
+    INSERT INTO assignments VALUES (60, 'published'), (61, 'draft'), (62, 'published');
+    INSERT INTO assignment_classes VALUES (60, 1), (61, 1), (62, 2);
+    INSERT INTO class_students VALUES (1, 201), (2, 202);
+  `);
+
+  try {
+    assert.equal(canSubmitAssignment(db, { id: 201, role: 'student' }, 60), true,
+      'student can submit to a published assignment in their class');
+    assert.equal(canSubmitAssignment(db, { id: 201, role: 'student' }, 61), false,
+      'student cannot submit to an unpublished assignment');
+    assert.equal(canSubmitAssignment(db, { id: 201, role: 'student' }, 62), false,
+      'student cannot submit to an assignment linked only to another class');
+    assert.equal(canSubmitAssignment(db, { id: 201, role: 'student' }, 999), false,
+      'student cannot submit to a non-existent assignment');
+    assert.equal(canSubmitAssignment(db, { id: 10, role: 'teacher' }, 60), false,
+      'teachers cannot use the student submission authorization');
   } finally {
     db.close();
   }
