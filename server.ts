@@ -163,7 +163,7 @@ const audit = (actor: number, action: string, type: string, id: number|null, det
 const canTeachClass = (teacherId: number, classId: number) =>
   !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=?').get(teacherId,classId);
 const parsePositiveId = (value: unknown): number | null => {
-  const id = typeof value === 'number' ? value : typeof value === 'string' && /^\\d+$/.test(value) ? Number(value) : NaN;
+  const id = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 const classExists = (classId: number) =>
