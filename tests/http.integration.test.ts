@@ -153,6 +153,37 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     });
     assert.equal(createShared.status, 200);
     const sharedAssignment = await createShared.json() as { id: number };
+    assert.equal((await request(`/api/assignments/${sharedAssignment.id}/progress`, { cookie: admin })).status, 200,
+      'admin can view progress for an existing assignment');
+    assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+      method: 'POST', cookie: admin, body: new FormData(),
+    })).status, 403, 'admin cannot use the student upload endpoint');
+    assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+      method: 'POST', cookie: teacherJansen, body: new FormData(),
+    })).status, 403, 'teacher cannot use the student upload endpoint');
+
+    // Verify the positive and negative write combinations for assignment deletion.
+    const teacherOwnedAssignmentResponse = await request('/api/assignments', {
+      method: 'POST', cookie: teacherJansen,
+      body: { title: 'Teacher-owned authorization test', classIds: [ictClass.id] },
+    });
+    assert.equal(teacherOwnedAssignmentResponse.status, 200);
+    const teacherOwnedAssignment = await teacherOwnedAssignmentResponse.json() as { id: number };
+    assert.equal((await request(`/api/assignments/${teacherOwnedAssignment.id}`, {
+      method: 'DELETE', cookie: studentNoor,
+    })).status, 403, 'student cannot delete an assignment');
+    assert.equal((await request(`/api/assignments/${teacherOwnedAssignment.id}`, {
+      method: 'DELETE', cookie: teacherJansen,
+    })).status, 200, 'teacher can delete an assignment exclusive to their class');
+    const adminOwnedAssignmentResponse = await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'Admin-owned authorization test', classIds: [mediaClass.id] },
+    });
+    assert.equal(adminOwnedAssignmentResponse.status, 200);
+    const adminOwnedAssignment = await adminOwnedAssignmentResponse.json() as { id: number };
+    assert.equal((await request(`/api/assignments/${adminOwnedAssignment.id}`, {
+      method: 'DELETE', cookie: admin,
+    })).status, 200, 'admin can delete an existing assignment');
 
     // Sara belongs to Media 3B. Submit a small PDF through the real multipart upload route.
     const form = new FormData();
@@ -267,6 +298,9 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       cookie: teacherVisser,
       body: { comments: 'Authorized feedback', grade: '8' },
     })).status, 200);
+    assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
+      method: 'POST', cookie: admin, body: { comments: 'Admin feedback', grade: '9' },
+    })).status, 200, 'admin can provide feedback on an existing submission');
     const studentDownload = await request(`/api/submissions/${submission.id}/download`, { cookie: studentSara });
     assert.equal(studentDownload.status, 200);
     assert.match(studentDownload.headers.get('content-type') || '', /application\/pdf|application\/octet-stream/);
@@ -403,6 +437,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
 
     // Admin retains global access and admin-only user/audit operations.
     assert.equal((await request('/api/admin/overview', { cookie: admin })).status, 200);
+    assert.equal((await request('/api/admin/overview', { cookie: teacherJansen })).status, 403);
+    assert.equal((await request('/api/admin/overview', { cookie: studentNoor })).status, 403);
     assert.equal((await request('/api/admin/audit', { cookie: admin })).status, 200);
     const adminUsers = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{id:number;email:string;role:string}>;
     const seededStudent = adminUsers.find((item) => item.email === 'student.noor@demo.local');
@@ -425,6 +461,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       method: 'POST',
       cookie: teacherJansen,
       body: { email: 'forbidden@demo.local', displayName: 'Forbidden', role: 'admin', password: 'SecurePass123!' },
+    })).status, 403);
+    assert.equal((await request('/api/admin/users', {
+      method: 'POST',
+      cookie: studentNoor,
+      body: { email: 'student-forbidden@demo.local', displayName: 'Forbidden', role: 'student', password: 'SecurePass123!' },
     })).status, 403);
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
