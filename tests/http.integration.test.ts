@@ -125,6 +125,20 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.match(csrfCookie, /SameSite=Lax/i);
     assert.doesNotMatch(csrfCookie, /HttpOnly/i, 'the CSRF cookie must be readable by the frontend');
 
+    // Browser security headers must be present on API responses as well as the frontend.
+    assert.equal(csrfResponse.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(csrfResponse.headers.get('x-frame-options'), 'DENY');
+    assert.equal(csrfResponse.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(csrfResponse.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()');
+    const reportOnlyPolicy = csrfResponse.headers.get('content-security-policy-report-only') || '';
+    assert.match(reportOnlyPolicy, /default-src 'self'/);
+    assert.match(reportOnlyPolicy, /object-src 'none'/);
+    assert.match(reportOnlyPolicy, /frame-ancestors 'none'/);
+    assert.equal(csrfResponse.headers.has('content-security-policy'), false,
+      'CSP must remain report-only until compatibility has been verified');
+    assert.equal(csrfResponse.headers.has('strict-transport-security'), false,
+      'HSTS is enabled only for production HTTPS deployments');
+
     // Unsafe requests without the signed header/cookie pair must be rejected.
     assert.equal((await request('/api/login', {
       method: 'POST', csrf: false,
