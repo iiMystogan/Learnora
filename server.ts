@@ -23,6 +23,36 @@ if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 
 const JWT_SECRET = process.env.JWT_SECRET || 'local-demo-only-change-this-secret-before-deployment';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('not-a-real-user-password',10);
 const app = express();
+
+// Baseline browser security headers. The CSP starts in report-only mode so the
+// current UI can be observed before any browser enforcement is introduced.
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "media-src 'self' blob:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join('; ');
+
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy-Report-Only', contentSecurityPolicy);
+  if (isProduction) {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  }
+  next();
+});
 // Forwarded IP headers are ignored unless an operator explicitly configures a trusted ingress header.
 // Never enable this when untrusted services can reach the application listener directly.
 const TRUSTED_CLIENT_IP_HEADER = (process.env.TRUSTED_CLIENT_IP_HEADER || '').trim().toLowerCase();
