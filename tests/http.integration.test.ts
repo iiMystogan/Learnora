@@ -298,6 +298,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       method: 'DELETE', cookie: admin,
     })).status, 200, 'admin can delete an existing assignment');
 
+    // A misleading extension must not bypass the content-signature check.
+    const disguisedUpload = new FormData();
+    disguisedUpload.append('file', new Blob(['<html><script>alert(1)</script></html>'], { type: 'application/pdf' }), 'not-really-a-pdf.pdf');
+    const rejectedUpload = await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+      method: 'POST', cookie: studentSara, body: disguisedUpload,
+    });
+    assert.equal(rejectedUpload.status, 400, 'a file with a PDF extension but HTML content must be rejected');
+
     // Sara belongs to Media 3B. Submit a small PDF through the real multipart upload route.
     const form = new FormData();
     form.append('file', new Blob(['%PDF-1.4\nLearnora HTTP integration test\n'], { type: 'application/pdf' }), 'http-test.pdf');
@@ -430,6 +438,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     })).status, 200, 'admin can provide feedback on an existing submission');
     const studentDownload = await request(`/api/submissions/${submission.id}/download`, { cookie: studentSara });
     assert.equal(studentDownload.status, 200);
+    assert.match(studentDownload.headers.get('content-disposition') || '', /^attachment;/i);
+    assert.equal(studentDownload.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(studentDownload.headers.get('content-security-policy'), "sandbox; default-src 'none'");
+    assert.equal(studentDownload.headers.get('cross-origin-resource-policy'), 'same-origin');
+    assert.equal(studentDownload.headers.get('cache-control'), 'private, no-store');
     assert.match(studentDownload.headers.get('content-type') || '', /application\/pdf|application\/octet-stream/);
 
     // Deleting a shared assignment is destructive for both classes and must be denied to one teacher.
