@@ -18,6 +18,8 @@ Deze headers zijn aanvullend. Ze vervangen geen authenticatie, autorisatie, outp
 
 Learnora stuurt voorlopig `Content-Security-Policy-Report-Only`, niet de afdwingende `Content-Security-Policy`-header. De browser kan overtredingen signaleren in de ontwikkelaarstools, maar blokkeert de betreffende bronnen nog niet.
 
+De policy bevat nu ook `script-src-attr 'none'`, waarmee inline JavaScript-eventhandlers expliciet worden uitgesloten. De bestaande React-interface gebruikt eventhandlers via JavaScript en heeft geen inline HTML-eventattributen nodig. Deze aanscherping blijft voorlopig Report-Only, totdat browsercompatibiliteit in een representatieve omgeving is gecontroleerd.
+
 De huidige policy staat alleen de eigen origin toe voor scripts en verbindingen. Voor de bestaande vormgeving zijn styles van Google Fonts en fonts van Google Fonts toegestaan. Inline styles zijn voorlopig toegestaan om compatibiliteit met de bestaande UI te behouden. Afbeeldingen zijn beperkt tot de eigen origin, data- en blob-URL's.
 
 Er is nog geen CSP-rapportage-endpoint geconfigureerd. Controleer browserconsolemeldingen en de productie-preview voordat CSP ooit afdwingend wordt gemaakt. Voeg geen externe origins toe zonder vast te stellen waarom Learnora ze nodig heeft.
