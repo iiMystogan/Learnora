@@ -5,16 +5,16 @@ import { test } from 'node:test';
 
 test('frontend does not introduce raw HTML or dynamic code execution sinks', async () => {
   const source = await readFile(path.join(process.cwd(), 'src', 'App.tsx'), 'utf8');
-  const forbiddenPatterns = [
-    /dangerouslySetInnerHTML/,
-    /\\.innerHTML\\s*=/,
-    /\\.outerHTML\\s*=/,
-    /document\\.write\\s*\\(/,
-    /\\beval\\s*\\(/,
-    /new\\s+Function\\s*\\(/,
+  const forbiddenSinks = [
+    'dangerouslySetInnerHTML',
+    '.innerHTML =',
+    '.outerHTML =',
+    'document.write(',
+    'eval(',
+    'new Function(',
   ];
 
-  for (const pattern of forbiddenPatterns) {
-    assert.doesNotMatch(source, pattern, `Unexpected unsafe frontend sink: ${pattern}`);
+  for (const sink of forbiddenSinks) {
+    assert.equal(source.includes(sink), false, `Unexpected unsafe frontend sink: ${sink}`);
   }
 });
