@@ -110,6 +110,10 @@ Nieuwe accounts en wachtwoordwijzigingen vereisen minimaal 12 tekens en maximaal
 
 Selfservice-wachtwoordherstel via e-mail is nog niet ingeschakeld, omdat er geen e-mailprovider of geverifieerde afzender is geconfigureerd. Een beheerder kan voorlopig een nieuw wachtwoord instellen; daarbij worden alle bestaande sessies ingetrokken. Zie [security/PASSWORD-RESET.md](security/PASSWORD-RESET.md) voor de veilige ontwerpvoorwaarden voordat e-mailherstel wordt toegevoegd.
 
+## HTTP-beveiligingsheaders
+
+Learnora stuurt browserbeveiligingsheaders voor MIME-type bescherming, clickjacking, referrerbeleid en browserrechten. De Content Security Policy staat bewust eerst in `Report-Only`-modus, zodat compatibiliteit met de bestaande UI kan worden gecontroleerd voordat bronnen eventueel worden geblokkeerd. HSTS wordt alleen in productie toegevoegd. Zie [security/HTTP-HEADERS.md](security/HTTP-HEADERS.md) voor de policy en de stappen vóór afdwinging.
+
 ## CSRF-bescherming
 
 Alle API-verzoeken die gegevens wijzigen (zoals POST, PUT, PATCH en DELETE) vereisen een geldig, ondertekend CSRF-token. De frontend haalt dit token op via `GET /api/csrf` en stuurt het bij mutaties mee in de header `X-CSRF-Token`. Het token moet overeenkomen met de host-only `learnora_csrf`-cookie. De handtekening wordt met `JWT_SECRET` gecontroleerd; het token wordt niet als authenticatiemiddel gebruikt.
