@@ -132,6 +132,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(csrfResponse.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()');
     const reportOnlyPolicy = csrfResponse.headers.get('content-security-policy-report-only') || '';
     assert.match(reportOnlyPolicy, /default-src 'self'/);
+    assert.match(reportOnlyPolicy, /script-src-attr 'none'/);
     assert.match(reportOnlyPolicy, /object-src 'none'/);
     assert.match(reportOnlyPolicy, /frame-ancestors 'none'/);
     assert.equal(csrfResponse.headers.has('content-security-policy'), false,
