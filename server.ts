@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { resolveClientIpAddress } from './security/client-ip.ts';
 import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
 import { validatePassword } from './security/password-policy.ts';
+import { validateSubmissionFile } from './security/upload-validation.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -576,6 +577,10 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
 },upload.single('file'),(req:any,res)=>{
   const assignmentId=Number(req.params.id), file=req.file;
   if(!file) return res.status(400).json({error:'Kies een PDF-, Word- of ZIP-bestand (maximaal 20 MB).'});
+  if (!validateSubmissionFile(file.path, file.originalname)) {
+    try { fs.unlinkSync(file.path); } catch {}
+    return res.status(400).json({error:'Het bestandstype komt niet overeen met de inhoud. Upload een geldig PDF-, Word- of ZIP-bestand.'});
+  }
   // Re-check authorization inside the same synchronous transaction as the write.
   // No other request can change class membership or assignment links between this check and INSERT.
   const saveSubmission = db.transaction(() => {
@@ -617,7 +622,14 @@ app.get('/api/submissions/:id/download',authenticate,(req:any,res)=>{
   if(!canSeeSubmission(db,req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
   const file=path.join(uploadDir,row.stored_filename);
   if(!fs.existsSync(file)) return res.status(404).json({error:'Bestand staat niet meer op de server.'});
-  res.download(file,row.original_filename);
+  res.download(file,row.original_filename,{
+    headers:{
+      'X-Content-Type-Options':'nosniff',
+      'Content-Security-Policy':"sandbox; default-src 'none'",
+      'Cross-Origin-Resource-Policy':'same-origin',
+      'Cache-Control':'private, no-store',
+    },
+  });
 });
 
 app.get('/api/admin/overview',authenticate,requireRole('admin'),(_req,res)=>{
