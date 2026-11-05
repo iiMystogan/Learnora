@@ -121,6 +121,60 @@ const installTenantIntegrityTriggers = (db: MigrationDatabase): void => {
       SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.active_organization_id AND m.user_id=NEW.user_id AND m.active=1
     )
     BEGIN SELECT RAISE(ABORT,'session organisation must match an active membership'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_classes_org_required_insert
+    BEFORE INSERT ON classes WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for classes'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_classes_org_required_update
+    BEFORE UPDATE OF organization_id ON classes WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for classes'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignments_org_required_insert
+    BEFORE INSERT ON assignments WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for assignments'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignments_org_required_update
+    BEFORE UPDATE OF organization_id ON assignments WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for assignments'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_teachers_org_required_insert
+    BEFORE INSERT ON class_teachers WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for class_teachers'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_teachers_org_required_update
+    BEFORE UPDATE OF organization_id ON class_teachers WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for class_teachers'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_students_org_required_insert
+    BEFORE INSERT ON class_students WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for class_students'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_students_org_required_update
+    BEFORE UPDATE OF organization_id ON class_students WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for class_students'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignment_classes_org_required_insert
+    BEFORE INSERT ON assignment_classes WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for assignment_classes'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignment_classes_org_required_update
+    BEFORE UPDATE OF organization_id ON assignment_classes WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for assignment_classes'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_submissions_org_required_insert
+    BEFORE INSERT ON submissions WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for submissions'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_submissions_org_required_update
+    BEFORE UPDATE OF organization_id ON submissions WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for submissions'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_feedback_org_required_insert
+    BEFORE INSERT ON feedback WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for feedback'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_feedback_org_required_update
+    BEFORE UPDATE OF organization_id ON feedback WHEN NEW.organization_id IS NULL
+    BEGIN SELECT RAISE(ABORT,'organization_id is required for feedback'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_sessions_org_required_insert
+    BEFORE INSERT ON sessions
+    WHEN NEW.active_organization_id IS NULL AND EXISTS (
+      SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.is_platform_admin=0
+    )
+    BEGIN SELECT RAISE(ABORT,'active organization is required for ordinary sessions'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_sessions_org_required_update
+    BEFORE UPDATE OF active_organization_id,user_id ON sessions
+    WHEN NEW.active_organization_id IS NULL AND EXISTS (
+      SELECT 1 FROM users u WHERE u.id=NEW.user_id AND u.is_platform_admin=0
+    )
+    BEGIN SELECT RAISE(ABORT,'active organization is required for ordinary sessions'); END;
   `);
 };
 
