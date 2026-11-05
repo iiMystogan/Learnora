@@ -259,18 +259,25 @@ const authenticate = (req: any, res: any, next: any) => {
         .get(session.active_organization_id,user.id) as typeof organization;
       if (!organization) return res.status(401).json({ error: 'Organisatiecontext van de sessie is niet meer geldig.' });
     }
+    if (organization) user.role = organization.role === 'org_admin' ? 'admin' : organization.role;
     req.user = user;
     req.organization = organization;
     req.organizationId = organization?.id ?? null;
     next();
   } catch { return res.status(401).json({ error: 'Sessie verlopen. Log opnieuw in.' }); }
 };
+const requireOrganization = (req: any, res: any, next: any) =>
+  Number.isSafeInteger(req.organizationId) && req.organizationId > 0
+    ? next()
+    : res.status(403).json({ error: 'Er is geen actieve schoolorganisatie aan deze sessie gekoppeld.' });
 const requireRole = (...roles: string[]) => (req: any, res: any, next: any) =>
   roles.includes(req.user.role) ? next() : res.status(403).json({ error: 'Je hebt geen toegang tot deze functie.' });
-const audit = (actor: number, action: string, type: string, id: number|null, details = '') =>
-  db.prepare('INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)').run(actor,action,type,id,details);
-const canTeachClass = (teacherId: number, classId: number) =>
-  !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=?').get(teacherId,classId);
+const audit = (actor: number, action: string, type: string, id: number|null, details = '', organizationId: number|null = null) =>
+  db.prepare('INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,details,organization_id) VALUES(?,?,?,?,?,?)')
+    .run(actor,action,type,id,details,organizationId);
+const canTeachClass = (teacherId: number, classId: number, organizationId: number) =>
+  !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=? AND organization_id=?')
+    .get(teacherId,classId,organizationId);
 const isBoundedString = (value: unknown, maxLength: number): value is string =>
   typeof value === 'string' && value.length <= maxLength;
 const isValidEmail = (value: unknown): value is string =>
@@ -286,8 +293,8 @@ const parsePositiveId = (value: unknown): number | null => {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 
-const classExists = (classId: number) =>
-  !!db.prepare('SELECT 1 FROM classes WHERE id=?').get(classId);
+const classExists = (classId: number, organizationId: number) =>
+  !!db.prepare('SELECT 1 FROM classes WHERE id=? AND organization_id=?').get(classId,organizationId);
 const canSeeAssignment = (user: any, assignmentId: number) => {
   if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=?').get(assignmentId);
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
@@ -485,13 +492,16 @@ app.get('/api/dashboard',authenticate,(req:any,res)=>{
   res.json({classes,assignments,totals});
 });
 
-app.get('/api/classes',authenticate,(req:any,res)=>{
-  const sql=req.user.role==='admin'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id GROUP BY c.id ORDER BY c.name`:
-    req.user.role==='teacher'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c JOIN class_teachers mine ON mine.class_id=c.id LEFT JOIN class_teachers ct ON ct.class_id=c.id LEFT JOIN users u ON u.id=ct.teacher_id WHERE mine.teacher_id=? GROUP BY c.id ORDER BY c.name`:
-    `SELECT c.*,'' teachers FROM classes c JOIN class_students cs ON cs.class_id=c.id WHERE cs.student_id=? ORDER BY c.name`;
-  res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
+app.get('/api/classes',authenticate,requireOrganization,(req:any,res)=>{
+  const sql=req.user.role==='admin'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c LEFT JOIN class_teachers ct ON ct.class_id=c.id AND ct.organization_id=? LEFT JOIN users u ON u.id=ct.teacher_id WHERE c.organization_id=? GROUP BY c.id ORDER BY c.name`:
+    req.user.role==='teacher'?`SELECT c.*,GROUP_CONCAT(DISTINCT u.display_name) teachers FROM classes c JOIN class_teachers mine ON mine.class_id=c.id AND mine.organization_id=? LEFT JOIN class_teachers ct ON ct.class_id=c.id AND ct.organization_id=? LEFT JOIN users u ON u.id=ct.teacher_id WHERE c.organization_id=? AND mine.teacher_id=? GROUP BY c.id ORDER BY c.name`:
+    `SELECT c.*,'' teachers FROM classes c JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=? WHERE c.organization_id=? AND cs.student_id=? ORDER BY c.name`;
+  const params=req.user.role==='admin'?[req.organizationId,req.organizationId]:
+    req.user.role==='teacher'?[req.organizationId,req.organizationId,req.organizationId,req.user.id]:
+    [req.organizationId,req.organizationId,req.user.id];
+  res.json(db.prepare(sql).all(...params));
 });
-app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.post('/api/classes',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const name=typeof req.body.name === 'string' ? req.body.name.trim() : '';
   const yearGroup=req.body.yearGroup ?? '';
   if(!name||name.length>120||!isBoundedString(yearGroup,32))
@@ -500,37 +510,39 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
   if(req.user.role==='admin' && req.body.teacherId !== undefined && req.body.teacherId !== null && req.body.teacherId !== ''){
     assignedTeacherId=Number(req.body.teacherId);
     if(!Number.isSafeInteger(assignedTeacherId)||assignedTeacherId<=0||
-      !db.prepare("SELECT 1 FROM users WHERE id=? AND role='teacher' AND active=1").get(assignedTeacherId)){
+      !db.prepare("SELECT 1 FROM organization_memberships WHERE organization_id=? AND user_id=? AND role='teacher' AND active=1").get(req.organizationId,assignedTeacherId)){
       return res.status(400).json({error:'Selecteer een actief docentaccount voor deze klas.'});
     }
   }
   const create=db.transaction(()=>{
-    const id=db.prepare('INSERT INTO classes(name,year_group) VALUES(?,?)').run(name,yearGroup).lastInsertRowid as number;
-    if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(id,req.user.id);
-    else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(id,assignedTeacherId);
-    audit(req.user.id,'class.created','class',id,name); return id;
+    const id=db.prepare('INSERT INTO classes(name,year_group,organization_id) VALUES(?,?,?)').run(name,yearGroup,req.organizationId).lastInsertRowid as number;
+    if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers(class_id,teacher_id,organization_id) VALUES(?,?,?)').run(id,req.user.id,req.organizationId);
+    else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers(class_id,teacher_id,organization_id) VALUES(?,?,?)').run(id,assignedTeacherId,req.organizationId);
+    audit(req.user.id,'class.created','class',id,name,req.organizationId); return id;
   });
   try { res.json({id:create()}); } catch { res.status(400).json({error:'Aanmaken van de klas is niet gelukt.'}); }
 });
-app.get('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.get('/api/classes/:id/students',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig klasnummer.'});
-  if(!classExists(id)) return res.status(404).json({error:'Klas niet gevonden.'});
-  if(req.user.role==='teacher'&&!canTeachClass(req.user.id,id)) return res.status(403).json({error:'Deze klas hoort niet bij jouw account.'});
-  const students=db.prepare(`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? ORDER BY u.display_name`).all(id);
+  if(!classExists(id,req.organizationId)) return res.status(404).json({error:'Klas niet gevonden.'});
+  if(req.user.role==='teacher'&&!canTeachClass(req.user.id,id,req.organizationId)) return res.status(403).json({error:'Deze klas hoort niet bij jouw account.'});
+  const students=db.prepare(`SELECT u.id,u.email,u.display_name AS displayName FROM users u JOIN class_students cs ON cs.student_id=u.id WHERE cs.class_id=? AND cs.organization_id=? AND u.active=1 ORDER BY u.display_name`).all(id,req.organizationId);
   res.json(students);
 });
-app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.post('/api/classes/:id/students',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const classId=parsePositiveId(req.params.id);
   if(classId===null) return res.status(400).json({error:'Ongeldig klasnummer.'});
-  if(!classExists(classId)) return res.status(404).json({error:'Klas niet gevonden.'});
-  if(req.user.role==='teacher'&&!canTeachClass(req.user.id,classId)) return res.status(403).json({error:'Geen toegang tot deze klas.'});
+  if(!classExists(classId,req.organizationId)) return res.status(404).json({error:'Klas niet gevonden.'});
+  if(req.user.role==='teacher'&&!canTeachClass(req.user.id,classId,req.organizationId)) return res.status(403).json({error:'Geen toegang tot deze klas.'});
   const email=typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const name=typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
   if(!isValidEmail(email)||!name||name.length>120) return res.status(400).json({error:'Vul een geldige naam (maximaal 120 tekens) en e-mailadres in.'});
   let student=db.prepare("SELECT * FROM users WHERE email=?").get(email) as any;
   if(student&&student.role!=='student') return res.status(400).json({error:'Dit account is geen studentaccount.'});
   if(student&&!student.active) return res.status(400).json({error:'Dit studentaccount is niet actief.'});
+  const existingMembership = student ? db.prepare('SELECT role FROM organization_memberships WHERE organization_id=? AND user_id=? AND active=1').get(req.organizationId,student.id) as {role:string}|undefined : undefined;
+  if(existingMembership && existingMembership.role!=='student') return res.status(400).json({error:'Dit account heeft in deze organisatie geen leerlingrol.'});
   const passwordError=!student?validatePassword(req.body.password):null;
   if(passwordError) return res.status(400).json({error:passwordError});
   const enrollStudent=db.transaction(()=>{
@@ -539,8 +551,9 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
         .run(email,name,bcrypt.hashSync(req.body.password,10));
       student={id:result.lastInsertRowid};
     }
-    db.prepare('INSERT OR IGNORE INTO class_students(class_id,student_id) VALUES(?,?)').run(classId,student.id);
-    audit(req.user.id,'student.enrolled','class',classId,email);
+    db.prepare("INSERT OR IGNORE INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'student',1)").run(req.organizationId,student.id);
+    db.prepare('INSERT OR IGNORE INTO class_students(class_id,student_id,organization_id) VALUES(?,?,?)').run(classId,student.id,req.organizationId);
+    audit(req.user.id,'student.enrolled','class',classId,email,req.organizationId);
   });
   enrollStudent();
   res.json({success:true,student:{id:student.id,email,displayName:name}});
