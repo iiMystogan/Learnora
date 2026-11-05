@@ -711,9 +711,9 @@ app.post('/api/assignments/:id/submit',authenticate,requireOrganization,requireR
   const saveSubmission = db.transaction(() => {
     if (!canSubmitForOrganization(req.user,assignmentId,req.organizationId)) return null;
     const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=? AND organization_id=?').get(assignmentId,req.user.id,req.organizationId) as any;
-    const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
-      VALUES(?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
-      stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP`)
+    const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size,organization_id)
+      VALUES(?,?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
+      stored_filename=excluded.stored_filename,file_size=excluded.file_size,organization_id=excluded.organization_id,submitted_at=CURRENT_TIMESTAMP`)
       .run(assignmentId,req.user.id,file.originalname,file.filename,file.size,req.organizationId);
     const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=? AND organization_id=?').get(assignmentId,req.user.id,req.organizationId) as any;
     audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname,req.organizationId);
