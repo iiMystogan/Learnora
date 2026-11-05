@@ -90,19 +90,19 @@ test('tenant foundation migration preserves and maps existing school data idempo
 
     const otherOrganizationId = Number(db.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
     db.prepare('INSERT INTO classes(name,organization_id) VALUES(?,?)').run('Class B',otherOrganizationId);
-    const noTenantWrites = [
-      () => db.prepare('INSERT INTO classes(name) VALUES(?)').run('Missing tenant class'),
-      () => db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(1,1)').run(),
-      () => db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(1,1)').run(),
-      () => db.prepare('INSERT INTO assignments(title,created_by) VALUES(?,?)').run('Missing tenant assignment',2),
-      () => db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(1,2)').run(),
-      () => db.prepare('INSERT INTO submissions(assignment_id,student_id) VALUES(1,1)').run(),
-      () => db.prepare('INSERT INTO feedback(submission_id) VALUES(1)').run(),
-      () => db.prepare('UPDATE classes SET organization_id=NULL WHERE id=1').run(),
+    const noTenantWrites: Array<[string, () => unknown]> = [
+      ['classes insert', () => db.prepare('INSERT INTO classes(name) VALUES(?)').run('Missing tenant class')],
+      ['class_teachers insert', () => db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(1,1)').run()],
+      ['class_students insert', () => db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(1,1)').run()],
+      ['assignments insert', () => db.prepare('INSERT INTO assignments(title,created_by) VALUES(?,?)').run('Missing tenant assignment',2)],
+      ['assignment_classes insert', () => db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(1,2)').run()],
+      ['submissions insert', () => db.prepare('INSERT INTO submissions(assignment_id,student_id) VALUES(1,1)').run()],
+      ['feedback insert', () => db.prepare('INSERT INTO feedback(submission_id) VALUES(1)').run()],
+      ['classes update', () => db.prepare('UPDATE classes SET organization_id=NULL WHERE id=1').run()],
     ];
-    for (const write of noTenantWrites) {
+    for (const [table,write] of noTenantWrites) {
       assert.throws(write,/organization_id is required/,
-        'the database must reject organization-owned records without a tenant ID');
+        `the database must reject tenantless ${table}`);
     }
     assert.throws(
       () => db.prepare('INSERT INTO sessions(jti,user_id) VALUES(?,?)').run('ordinary-session-without-tenant',3),
