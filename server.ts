@@ -595,7 +595,15 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
     audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname);
     return { id: row.id, previous };
   });
-  const saved = saveSubmission();
+  let saved: ReturnType<typeof saveSubmission>;
+  try {
+    saved = saveSubmission();
+  } catch (error) {
+    // Multer has already written the new file. If the database transaction fails,
+    // remove that unreferenced file and leave the previous submission untouched.
+    try { fs.unlinkSync(file.path); } catch {}
+    throw error;
+  }
   if (!saved) {
     try { fs.unlinkSync(file.path); } catch {}
     return res.status(403).json({error:'Deze opdracht is niet aan jouw klas gekoppeld.'});
