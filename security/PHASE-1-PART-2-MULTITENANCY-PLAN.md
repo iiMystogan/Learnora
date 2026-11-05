@@ -1,6 +1,6 @@
 # Phase 1 – Part 2: multi-tenancy assessment
 
-Status: **required; tenant ownership and role design recorded; no tenant schema or route changes have been implemented yet.**
+Status: **required; tenant schema foundation and server-validated session context are implemented on the security branch. API-wide tenant scoping remains in progress.**
 
 ## Why Part 2 is needed
 
@@ -8,13 +8,7 @@ The product roadmap makes Learnora a service for multiple independent schools. T
 
 ## Current inventory on `security/phase-1-backend`
 
-The SQLite schema contains:
-
-- Identity and access: `users`, `sessions`, `login_rate_limits`.
-- School work: `classes`, `class_teachers`, `class_students`, `assignments`, `assignment_classes`, `submissions`, `feedback`.
-- Operations: `audit_logs`.
-
-There is no `organizations` table or tenant identifier. The current role constraint is `admin`, `teacher`, or `student`. API authorization scopes teachers and students to classes, but it has no organization boundary to enforce.
+The SQLite schema now includes `organizations`, `organization_memberships`, tenant ID columns, and an active organisation ID on sessions. A versioned migration backfills legacy/demo data. Initial database triggers reject explicit cross-organisation class, assignment, submission, feedback, and session relationships. The legacy global role column and existing API scopes remain during the transition; API-wide tenant enforcement is not complete.
 
 ## Tenant ownership and role decisions for v1
 
@@ -22,7 +16,7 @@ There is no `organizations` table or tenant identifier. The current role constra
 2. Store `org_admin`, `teacher`, and `student` roles on an organisation-membership record, not on the global user. A user's role can differ between organisations.
 3. Keep central platform administration as a separate global capability. Platform administrators receive no school membership by default and no automatic access to school work. Each platform action that targets an organisation must name and audit that organisation.
 4. Bind each ordinary session to one active organisation membership. The server loads that membership; it never accepts an organisation ID from request data as proof of access. Switching organisations requires the server to verify another active membership.
-5. Store organisation IDs on organisation-owned records and enforce same-organisation relationships with composite foreign keys and uniqueness constraints.
+5. Store organisation IDs on organisation-owned records and enforce same-organisation relationships with database triggers and uniqueness constraints. The initial triggers currently validate explicit tenant IDs; making tenant IDs mandatory depends on updating all API writes in step 5.
 
 This is the initial product model based on the roadmap's separate organisations and organisation-specific roles. Entra ID identity mapping remains a later authentication step.
 
@@ -35,7 +29,7 @@ This is the initial product model based on the roadmap's separate organisations 
 - `sessions`: user ID and active organisation membership/context; platform sessions without a school context remain explicitly platform-scoped.
 - `login_rate_limits`: remain global unless later threat analysis supports tenant-scoped limits.
 
-The exact SQLite DDL and indexes will be designed as the next implementation step. The composite constraints must make cross-organisation links impossible even if a route check is missed.
+The first additive SQLite migration and indexes are implemented. The initial trigger layer catches explicit tenant mismatches; legacy API writes can still omit tenant IDs until route scoping is implemented, so this is an interim guard rather than complete isolation.
 
 ## Existing data migration
 
@@ -44,9 +38,9 @@ Use a versioned, transactional migration. Existing demo data should be assigned 
 ## Step-by-step implementation sequence
 
 1. Tenant ownership and role rules: **complete** (decisions above).
-2. Design and implement a schema-version mechanism and additive migration that creates the organisation and membership model without dropping existing data.
-3. Add database constraints for same-organisation class, assignment, submission, feedback, and membership relationships.
-4. Add a trusted active-organisation context to authentication and authorization helpers.
+2. Design and implement a schema-version mechanism and additive migration that creates the organisation and membership model without dropping existing data: **complete**.
+3. Add database constraints for same-organisation class, assignment, submission, feedback, and membership relationships: **initial triggers implemented; mandatory tenant IDs remain for step 5**.
+4. Add a trusted active-organisation context to authentication and authorization helpers: **complete; session organisation is loaded from the database and checked against an active membership**.
 5. Scope API reads and writes, then uploads/downloads, to that context.
 6. Add cross-tenant integration tests for every endpoint and role, including attempts to alter tenant IDs in request data.
 7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch.
