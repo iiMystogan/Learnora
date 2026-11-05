@@ -217,6 +217,39 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     }});
     assert.equal(otherOrgLogin.status,200);
     const otherOrgCookie=(otherOrgLogin.headers.get('set-cookie')||'').split(';',1)[0];
+
+    const availableOrganizations=await request('/api/organizations',{cookie:admin});
+    assert.equal(availableOrganizations.status,200);
+    const organizationOptions=await availableOrganizations.json() as Array<{id:number;name:string;role:string}>;
+    assert.deepEqual(organizationOptions.map(({id,name,role})=>[id,name,role]),[
+      [currentUserData.user.organizationId,'Legacy Learnora','org_admin'],
+      [otherOrganizationId,'Other School','org_admin'],
+    ],'users may only discover their own active organisation memberships');
+
+    const switchToOther=await request('/api/organization/switch',{method:'POST',cookie:admin,body:{organizationId:otherOrganizationId}});
+    assert.equal(switchToOther.status,200);
+    const switchedUser=await switchToOther.json() as {user:{organizationId:number;organizationName:string;role:string}};
+    assert.deepEqual([switchedUser.user.organizationId,switchedUser.user.organizationName,switchedUser.user.role],
+      [otherOrganizationId,'Other School','admin']);
+    const switchedClasses=await request('/api/classes',{cookie:admin});
+    assert.deepEqual((await switchedClasses.json() as Array<{name:string}>).map((item)=>item.name),['Other School Class'],
+      'API authorization must follow the newly switched session context');
+
+    const forbiddenSwitch=await request('/api/organization/switch',{method:'POST',cookie:admin,body:{organizationId:999999}});
+    assert.equal(forbiddenSwitch.status,403,'a user cannot switch to an organisation without active membership');
+    const contextAfterForbiddenSwitch=await request('/api/me',{cookie:admin});
+    assert.equal((await contextAfterForbiddenSwitch.json() as {user:{organizationId:number}}).user.organizationId,otherOrganizationId,
+      'a rejected switch must leave the current session organisation unchanged');
+
+    const switchBack=await request('/api/organization/switch',{method:'POST',cookie:admin,body:{
+      organizationId:currentUserData.user.organizationId,
+    }});
+    assert.equal(switchBack.status,200);
+    const restoredClasses=await request('/api/classes',{cookie:admin});
+    const restoredClassNames=(await restoredClasses.json() as Array<{name:string}>).map((item)=>item.name);
+    assert.ok(restoredClassNames.includes('ICT 2A'));
+    assert.equal(restoredClassNames.includes('Other School Class'),false,
+      'switching back must restore the original tenant boundary');
     const otherOrgClasses=await request('/api/classes',{cookie:otherOrgCookie});
     assert.deepEqual((await otherOrgClasses.json() as Array<{name:string}>).map((item)=>item.name),['Other School Class'],
       'the class list must follow the active organisation in the session');
