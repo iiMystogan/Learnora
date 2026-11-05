@@ -225,7 +225,8 @@ export function migrateTenantFoundation(db: MigrationDatabase, isProduction: boo
       CREATE INDEX IF NOT EXISTS idx_sessions_active_organization ON sessions(active_organization_id);
     `);
 
-    installTenantIntegrityTriggers(db);\n    db.prepare('INSERT INTO schema_migrations(version,name) VALUES(?,?)').run(1, 'tenant_foundation');
+    installTenantIntegrityTriggers(db);
+    db.prepare('INSERT INTO schema_migrations(version,name) VALUES(?,?)').run(1, 'tenant_foundation');
   });
 
   migrate();
