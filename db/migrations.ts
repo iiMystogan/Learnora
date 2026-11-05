@@ -73,9 +73,11 @@ export function migrateTenantFoundation(db: MigrationDatabase, isProduction: boo
 
     let organizationId: number | null = existingOrganizations[0]?.id ?? null;
     const hasExistingSchoolData = ['users','classes','assignments','submissions'].some((table) => countRows(db, table) > 0);
+    const demoAccountCount = Number((db.prepare("SELECT COUNT(*) AS count FROM users WHERE email LIKE '%@demo.local'").get() as {count:number}).count);
+    const isLocalDemoDataset = !isProduction && demoAccountCount > 0;
     if (organizationId === null && (hasExistingSchoolData || !isProduction)) {
-      const slug = hasExistingSchoolData ? 'legacy-learnora' : 'learnora-demo';
-      const displayName = hasExistingSchoolData ? 'Imported Learnora Organisation' : 'Learnora Demo School';
+      const slug = isLocalDemoDataset ? 'learnora-demo' : 'legacy-learnora';
+      const displayName = isLocalDemoDataset ? 'Learnora Demo School' : 'Imported Learnora Organisation';
       organizationId = Number(db.prepare('INSERT INTO organizations(slug,display_name) VALUES(?,?)')
         .run(slug, displayName).lastInsertRowid);
     }
