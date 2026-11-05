@@ -98,6 +98,10 @@ Authentication is deliberately isolated behind the session/login endpoints. A fu
 
 The current local demo is not yet wired to Entra ID and does not imply that the organisation has approved an app registration.
 
+## API-autorisatie
+
+De route-voor-route rol- en gegevensgrenzen staan in [de API-autorisatiematrix](security/API-AUTHORIZATION.md). De matrix beschrijft ook welke API-routes bewust publiek zijn.
+
 ## Network security
 
 See [security/NETWORKING.md](security/NETWORKING.md) for the current private-network inventory, internal-service trust rules, client-IP rate-limit configuration and hosting-portability requirements. Review it before adding services or changing the hosting provider.
