@@ -69,7 +69,7 @@ Volg [de ICT-demo-checklist](security/ICT-DEMO-CHECKLIST.md) voor de demonstrati
 | Student | student.liam@demo.local | Student123! |
 | Student | student.sara@demo.local | Student123! |
 
-The first start seeds these demo accounts and sample classes/assignments only when the users table is empty. Do not use these credentials outside a local demo.
+On first start, non-production environments seed these demo accounts and sample classes/assignments only when the users table is empty. Production never creates demo accounts automatically. Do not use these credentials outside a local demo.
 
 ## What is demonstrated
 
