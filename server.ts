@@ -727,9 +727,19 @@ app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
   if(!isValidEmail(email)||!name||name.length>120||!['teacher','student','admin'].includes(role)||passwordError)
     return res.status(400).json({error:passwordError||'Vul naam, geldig e-mailadres en een geldige rol in.'});
   try{
-    const id=db.prepare('INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)').run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid;
-    audit(req.user.id,'user.created','user',Number(id),email);res.json({id});
-  }catch{return res.status(400).json({error:'Dit e-mailadres bestaat al.'});}
+    const createUser=db.transaction(()=>{
+      const id=db.prepare('INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)')
+        .run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid;
+      audit(req.user.id,'user.created','user',Number(id),email);
+      return id;
+    });
+    const id=createUser();
+    res.json({id});
+  }catch(error){
+    if(error instanceof Error && error.message.includes('UNIQUE constraint failed: users.email'))
+      return res.status(400).json({error:'Dit e-mailadres bestaat al.'});
+    throw error;
+  }
 });
 app.get('/api/admin/audit',authenticate,requireRole('admin'),(_req,res)=>{
   res.json(db.prepare('SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id ORDER BY l.created_at DESC LIMIT 100').all());
