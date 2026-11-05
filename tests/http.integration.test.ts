@@ -250,6 +250,39 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.ok(restoredClassNames.includes('ICT 2A'));
     assert.equal(restoredClassNames.includes('Other School Class'),false,
       'switching back must restore the original tenant boundary');
+
+    const defaultBranding=await request('/api/organization/settings',{cookie:admin});
+    assert.equal(defaultBranding.status,200);
+    assert.deepEqual(await defaultBranding.json(),{
+      organizationId:currentUserData.user.organizationId,
+      brandName:'Learnora Demo School',
+      primaryColor:'#454c9b',
+    });
+    const saveBranding=await request('/api/organization/settings',{method:'PATCH',cookie:admin,body:{
+      brandName:'Learnora Noord',primaryColor:'#123ABC',
+    }});
+    assert.equal(saveBranding.status,200);
+    const invalidBranding=await request('/api/organization/settings',{method:'PATCH',cookie:admin,body:{
+      brandName:'Unsafe color',primaryColor:'url(javascript:alert(1))',
+    }});
+    assert.equal(invalidBranding.status,400,'branding colors must use a strict hexadecimal allowlist');
+
+    const otherDefaultBranding=await request('/api/organization/settings',{cookie:otherOrgCookie});
+    assert.deepEqual(await otherDefaultBranding.json(),{
+      organizationId:otherOrganizationId,
+      brandName:'Other School',
+      primaryColor:'#454c9b',
+    });
+    const saveOtherBranding=await request('/api/organization/settings',{method:'PATCH',cookie:otherOrgCookie,body:{
+      brandName:'Other School Brand',primaryColor:'#00AABB',
+    }});
+    assert.equal(saveOtherBranding.status,200);
+    const primaryBrandingAfterOtherUpdate=await request('/api/organization/settings',{cookie:admin});
+    assert.deepEqual(await primaryBrandingAfterOtherUpdate.json(),{
+      organizationId:currentUserData.user.organizationId,
+      brandName:'Learnora Noord',
+      primaryColor:'#123abc',
+    },'updating one organisation branding must not change another organisation settings');
     const otherOrgClasses=await request('/api/classes',{cookie:otherOrgCookie});
     assert.deepEqual((await otherOrgClasses.json() as Array<{name:string}>).map((item)=>item.name),['Other School Class'],
       'the class list must follow the active organisation in the session');
