@@ -302,6 +302,18 @@ const canSubmitForOrganization = (user: any, assignmentId: number, organizationI
     WHERE a.id=? AND a.organization_id=? AND a.status='published' AND cs.student_id=?`)
     .get(organizationId,organizationId,assignmentId,organizationId,user.id);
 
+const canSeeSubmissionForOrganization = (user: any, submissionId: number, organizationId: number) => {
+  if (user.role === 'admin') return !!db.prepare(`SELECT 1 FROM submissions s JOIN assignments a ON a.id=s.assignment_id
+    WHERE s.id=? AND s.organization_id=? AND a.organization_id=?`).get(submissionId,organizationId,organizationId);
+  if (user.role === 'student') return !!db.prepare('SELECT 1 FROM submissions WHERE id=? AND student_id=? AND organization_id=?')
+    .get(submissionId,user.id,organizationId);
+  return !!db.prepare(`SELECT 1 FROM submissions s JOIN assignments a ON a.id=s.assignment_id AND a.organization_id=?
+    JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+    JOIN class_students cs ON cs.class_id=ac.class_id AND cs.student_id=s.student_id AND cs.organization_id=?
+    JOIN class_teachers ct ON ct.class_id=ac.class_id AND ct.organization_id=?
+    WHERE s.id=? AND s.organization_id=? AND ct.teacher_id=? LIMIT 1`)
+    .get(organizationId,organizationId,organizationId,organizationId,submissionId,organizationId,user.id);
+};
 const canSeeAssignment = (user: any, assignmentId: number, organizationId: number) => {
   if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=? AND organization_id=?').get(assignmentId,organizationId);
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
@@ -735,29 +747,29 @@ app.post('/api/assignments/:id/submit',authenticate,requireOrganization,requireR
   if(saved.previous){try{fs.unlinkSync(path.join(uploadDir,saved.previous.stored_filename));}catch{}}
   res.json({success:true,id:saved.id});
 });
-app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.post('/api/submissions/:id/feedback',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig inzendingsnummer.'});
-  if(!canSeeSubmission(db,req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
+  if(!canSeeSubmissionForOrganization(req.user,id,req.organizationId)) return res.status(404).json({error:'Inzending niet gevonden.'});
   const comments=typeof req.body.comments === 'string' ? req.body.comments.trim() : '';
   const grade=req.body.grade ?? '';
   if(!comments||comments.length>10000||!isBoundedString(grade,50))
     return res.status(400).json({error:'Feedback is verplicht (maximaal 10.000 tekens) en het cijfer mag maximaal 50 tekens zijn.'});
   const saveFeedback=db.transaction(()=>{
-    db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
-      ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP`)
-      .run(id,req.user.id,comments,grade);
-    audit(req.user.id,'feedback.saved','submission',id);
+    db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at,organization_id) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP,?)
+      ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP,organization_id=excluded.organization_id`)
+      .run(id,req.user.id,comments,grade,req.organizationId);
+    audit(req.user.id,'feedback.saved','submission',id,'',req.organizationId);
   });
   saveFeedback();
   res.json({success:true});
 });
-app.get('/api/submissions/:id/download',authenticate,(req:any,res)=>{
+app.get('/api/submissions/:id/download',authenticate,requireOrganization,(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig inzendingsnummer.'});
-  const row=db.prepare('SELECT * FROM submissions WHERE id=?').get(id) as any;
+  const row=db.prepare('SELECT * FROM submissions WHERE id=? AND organization_id=?').get(id,req.organizationId) as any;
   if(!row) return res.status(404).json({error:'Inzending niet gevonden.'});
-  if(!canSeeSubmission(db,req.user,id)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
+  if(!canSeeSubmissionForOrganization(req.user,id,req.organizationId)) return res.status(403).json({error:'Geen toegang tot deze inzending.'});
   const file=path.join(uploadDir,row.stored_filename);
   if(!fs.existsSync(file)) return res.status(404).json({error:'Bestand staat niet meer op de server.'});
   res.download(file,row.original_filename,{
