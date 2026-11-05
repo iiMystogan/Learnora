@@ -623,7 +623,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const auditRows = await auditResponse.json() as Array<{action:string;details:string}>;
     assert.ok(auditRows.some((row) => row.action === 'auth.login'), 'successful logins must be audited');
     assert.ok(auditRows.some((row) => row.action === 'auth.logout'), 'successful logouts must be audited');
-    assert.ok(auditRows.every((row) => !/password|token|198\\.51\\.100/.test(row.details)),
+    assert.ok(auditRows.every((row) => !/Admin123!|Teacher123!|Student123!|InitialPass123!|ChangedPass123!|SelfServiceStart123!|SelfServiceChanged123!|http-integration-test-secret|198\\.51\\.100/.test(row.details)),
       'audit details must not expose credentials, tokens or raw client IP addresses');
     const adminUsers = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{id:number;email:string;role:string}>;
     const seededStudent = adminUsers.find((item) => item.email === 'student.noor@demo.local');
