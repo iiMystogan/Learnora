@@ -606,7 +606,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       } finally {
         releaseUpload();
       }
-      testDb.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,6)').run(mediaClass.id);
+      testDb.prepare("INSERT INTO class_students(class_id,student_id,organization_id) VALUES(?,6,(SELECT id FROM organizations WHERE slug='learnora-demo'))").run(mediaClass.id);
     } finally {
       testDb.close();
     }
