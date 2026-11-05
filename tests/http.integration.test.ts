@@ -328,6 +328,21 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     });
     assert.equal(adminOwnedAssignmentResponse.status, 200);
     const adminOwnedAssignment = await adminOwnedAssignmentResponse.json() as { id: number };
+    const assignmentAuditDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      assignmentAuditDb.exec(`CREATE TRIGGER fail_assignment_delete_audit BEFORE INSERT ON audit_logs
+        WHEN NEW.action = 'assignment.deleted'
+        BEGIN SELECT RAISE(ABORT, 'forced assignment audit failure'); END`);
+      assert.equal((await request(`/api/assignments/${adminOwnedAssignment.id}`, {
+        method: 'DELETE', cookie: admin,
+      })).status, 500, 'an audit failure during assignment deletion must fail the operation');
+      const assignmentsAfterFailedDelete = await (await request('/api/assignments', { cookie: admin })).json() as Array<{id:number}>;
+      assert.ok(assignmentsAfterFailedDelete.some((assignment) => assignment.id === adminOwnedAssignment.id),
+        'assignment deletion must roll back if its audit record cannot be written');
+    } finally {
+      assignmentAuditDb.exec('DROP TRIGGER IF EXISTS fail_assignment_delete_audit');
+      assignmentAuditDb.close();
+    }
     assert.equal((await request(`/api/assignments/${adminOwnedAssignment.id}`, {
       method: 'DELETE', cookie: admin,
     })).status, 200, 'admin can delete an existing assignment');
@@ -487,6 +502,21 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       method: 'POST', cookie: teacherVisser,
       body: { comments: 'x'.repeat(10001), grade: '8' },
     })).status, 400, 'feedback length must be bounded');
+    const feedbackAuditDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      feedbackAuditDb.exec(`CREATE TRIGGER fail_feedback_audit BEFORE INSERT ON audit_logs
+        WHEN NEW.action = 'feedback.saved'
+        BEGIN SELECT RAISE(ABORT, 'forced feedback audit failure'); END`);
+      assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
+        method: 'POST', cookie: teacherVisser, body: { comments: 'Must roll back', grade: '8' },
+      })).status, 500, 'an audit failure while saving feedback must fail the operation');
+      const submissionsAfterFailedFeedback = await (await request('/api/submissions', { cookie: teacherVisser })).json() as Array<{id:number;comments?:string}>;
+      assert.equal(submissionsAfterFailedFeedback.find((item) => item.id === submission.id)?.comments, undefined,
+        'feedback must roll back if its audit record cannot be written');
+    } finally {
+      feedbackAuditDb.exec('DROP TRIGGER IF EXISTS fail_feedback_audit');
+      feedbackAuditDb.close();
+    }
     assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
       method: 'POST',
       cookie: teacherVisser,
