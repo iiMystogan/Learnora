@@ -394,7 +394,7 @@ app.post('/api/login',(req:any,res:any) => {
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
   db.prepare('DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL').run(Math.floor(Date.now() / 1000));
   const createSession = db.transaction(() => {
-    db.prepare('INSERT INTO sessions(jti,user_id,expires_at,active_organization_id) VALUES(?,?,?,?)')\n      .run(jti,user.id,expiresAt,activeMembership?.organization_id ?? null);
+    db.prepare('INSERT INTO sessions(jti,user_id,expires_at,active_organization_id) VALUES(?,?,?,?)').run(jti,user.id,expiresAt,activeMembership?.organization_id ?? null);
     audit(user.id,'auth.login','session',null);
   });
   createSession();
