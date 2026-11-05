@@ -465,6 +465,50 @@ app.get('/api/organizations',authenticate,(req:any,res)=>{
   res.json(organizations);
 });
 
+app.get('/api/organization/settings',authenticate,requireOrganization,(req:any,res)=>{
+  const row=db.prepare('SELECT display_name,settings_json FROM organizations WHERE id=? AND status=\'active\'')
+    .get(req.organizationId) as {display_name:string;settings_json:string}|undefined;
+  if(!row) return res.status(404).json({error:'Organisatie niet gevonden.'});
+  let settings:any;
+  try { settings=JSON.parse(row.settings_json||'{}'); }
+  catch { return res.status(500).json({error:'Organisatie-instellingen zijn ongeldig opgeslagen.'}); }
+  const branding=settings&&typeof settings==='object'&&!Array.isArray(settings)&&
+    settings.branding&&typeof settings.branding==='object'&&!Array.isArray(settings.branding)?settings.branding:{};
+  res.setHeader('Cache-Control','no-store');
+  res.json({
+    organizationId:req.organizationId,
+    brandName:typeof branding.brandName==='string'&&branding.brandName.trim()?branding.brandName:row.display_name,
+    primaryColor:typeof branding.primaryColor==='string'&&/^#[0-9a-fA-F]{6}$/.test(branding.primaryColor)?branding.primaryColor:'#454c9b',
+  });
+});
+
+app.patch('/api/organization/settings',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
+  const keys=Object.keys(req.body);
+  const brandName=typeof req.body.brandName==='string'?req.body.brandName.trim():'';
+  const primaryColor=req.body.primaryColor;
+  if(keys.some((key)=>!['brandName','primaryColor'].includes(key))||keys.length!==2||
+    !brandName||brandName.length>48||typeof primaryColor!=='string'||!/^#[0-9a-fA-F]{6}$/.test(primaryColor)){
+    return res.status(400).json({error:'Vul een organisatienaam (maximaal 48 tekens) en een hex-kleur in.'});
+  }
+  const row=db.prepare('SELECT settings_json FROM organizations WHERE id=? AND status=\'active\'')
+    .get(req.organizationId) as {settings_json:string}|undefined;
+  if(!row) return res.status(404).json({error:'Organisatie niet gevonden.'});
+  let settings:any;
+  try { settings=JSON.parse(row.settings_json||'{}'); }
+  catch { return res.status(500).json({error:'Organisatie-instellingen zijn ongeldig opgeslagen.'}); }
+  if(!settings||typeof settings!=='object'||Array.isArray(settings)) settings={};
+  const priorBranding=settings.branding&&typeof settings.branding==='object'&&!Array.isArray(settings.branding)?settings.branding:{};
+  const updated={...settings,branding:{...priorBranding,brandName,primaryColor:primaryColor.toLowerCase()}};
+  const save=db.transaction(()=>{
+    db.prepare('UPDATE organizations SET settings_json=? WHERE id=? AND status=\'active\'')
+      .run(JSON.stringify(updated),req.organizationId);
+    audit(req.user.id,'organization.settings.update','organization',req.organizationId,'branding',req.organizationId);
+  });
+  save();
+  res.setHeader('Cache-Control','no-store');
+  res.json({organizationId:req.organizationId,brandName,primaryColor:primaryColor.toLowerCase()});
+});
+
 app.post('/api/organization/switch',authenticate,(req:any,res)=>{
   const organizationId=parsePositiveId(req.body.organizationId);
   if(organizationId===null) return res.status(400).json({error:'Ongeldige organisatie.'});
