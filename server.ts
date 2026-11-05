@@ -295,6 +295,13 @@ const parsePositiveId = (value: unknown): number | null => {
 
 const classExists = (classId: number, organizationId: number) =>
   !!db.prepare('SELECT 1 FROM classes WHERE id=? AND organization_id=?').get(classId,organizationId);
+const canSubmitForOrganization = (user: any, assignmentId: number, organizationId: number) =>
+  user.role === 'student' && !!db.prepare(`SELECT 1 FROM assignments a
+    JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+    JOIN class_students cs ON cs.class_id=ac.class_id AND cs.organization_id=?
+    WHERE a.id=? AND a.organization_id=? AND a.status='published' AND cs.student_id=?`)
+    .get(organizationId,organizationId,assignmentId,organizationId,user.id);
+
 const canSeeAssignment = (user: any, assignmentId: number, organizationId: number) => {
   if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=? AND organization_id=?').get(assignmentId,organizationId);
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
@@ -686,10 +693,10 @@ const upload=multer({storage:multer.diskStorage({
   const ext=path.extname(file.originalname).toLowerCase();
   cb(null,['.pdf','.doc','.docx','.zip'].includes(ext));
 }});
-app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
+app.post('/api/assignments/:id/submit',authenticate,requireOrganization,requireRole('student'),(req:any,res,next:any)=>{
   const assignmentId=parsePositiveId(req.params.id);
   if(assignmentId===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
-  if(!canSubmitAssignment(db,req.user,assignmentId))
+  if(!canSubmitForOrganization(req.user,assignmentId,req.organizationId))
     return res.status(403).json({error:'Deze opdracht is niet beschikbaar voor jouw klas.'});
   next();
 },upload.single('file'),(req:any,res)=>{
@@ -702,14 +709,14 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
   // Re-check authorization inside the same synchronous transaction as the write.
   // No other request can change class membership or assignment links between this check and INSERT.
   const saveSubmission = db.transaction(() => {
-    if (!canSubmitAssignment(db,req.user,assignmentId)) return null;
-    const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
+    if (!canSubmitForOrganization(req.user,assignmentId,req.organizationId)) return null;
+    const previous=db.prepare('SELECT * FROM submissions WHERE assignment_id=? AND student_id=? AND organization_id=?').get(assignmentId,req.user.id,req.organizationId) as any;
     const result=db.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size)
       VALUES(?,?,?,?,?) ON CONFLICT(assignment_id,student_id) DO UPDATE SET original_filename=excluded.original_filename,
       stored_filename=excluded.stored_filename,file_size=excluded.file_size,submitted_at=CURRENT_TIMESTAMP`)
-      .run(assignmentId,req.user.id,file.originalname,file.filename,file.size);
-    const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=?').get(assignmentId,req.user.id) as any;
-    audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname);
+      .run(assignmentId,req.user.id,file.originalname,file.filename,file.size,req.organizationId);
+    const row=db.prepare('SELECT id FROM submissions WHERE assignment_id=? AND student_id=? AND organization_id=?').get(assignmentId,req.user.id,req.organizationId) as any;
+    audit(req.user.id,'submission.uploaded','submission',row.id,file.originalname,req.organizationId);
     return { id: row.id, previous };
   });
   let saved: ReturnType<typeof saveSubmission>;
