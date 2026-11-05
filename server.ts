@@ -355,7 +355,11 @@ app.post('/api/login',(req:any,res:any) => {
   const jti = crypto.randomUUID();
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
   db.prepare('DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL').run(Math.floor(Date.now() / 1000));
-  db.prepare('INSERT INTO sessions(jti,user_id,expires_at) VALUES(?,?,?)').run(jti,user.id,expiresAt);
+  const createSession = db.transaction(() => {
+    db.prepare('INSERT INTO sessions(jti,user_id,expires_at) VALUES(?,?,?)').run(jti,user.id,expiresAt);
+    audit(user.id,'auth.login','session',null);
+  });
+  createSession();
   const token = jwt.sign({id:user.id,jti},JWT_SECRET,{expiresIn:'8h'});
   res.cookie('session',token,{httpOnly:true,secure:isProduction,sameSite:'lax',maxAge:8*60*60*1000,path:'/'});
   res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role}});
@@ -366,8 +370,9 @@ app.post('/api/logout',(req,res)=>{
     try {
       const payload = jwt.verify(token,JWT_SECRET,{ignoreExpiration:true}) as SessionUser & {jti?:string};
       if (Number.isSafeInteger(payload.id) && typeof payload.jti === 'string' && payload.jti) {
-        db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE jti=? AND user_id=? AND revoked_at IS NULL')
+        const revoked = db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE jti=? AND user_id=? AND revoked_at IS NULL')
           .run(payload.jti,payload.id);
+        if (revoked.changes > 0) audit(payload.id,'auth.logout','session',null);
       }
     } catch {
       // Invalid or tampered tokens are simply cleared; they cannot identify a trusted session.
