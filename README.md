@@ -26,7 +26,7 @@ To keep the demo separate from the stable version, open a new Command Prompt win
 
 ```cmd
 cd /d "%USERPROFILE%"
-git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Xerte-file-manager.git Learnora-demo
+git clone --branch demo/education-platform --single-branch https://github.com/iiMystogan/Learnora.git Learnora-demo
 cd Learnora-demo
 npm install
 npm run dev
