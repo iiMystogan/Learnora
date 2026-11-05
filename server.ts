@@ -647,6 +647,24 @@ app.get('/api/assignments/:id/progress',authenticate,requireOrganization,require
   res.json(rows);
 });
 
+const defaultUploadDir=isProduction
+  ? path.join(process.cwd(),'uploads','submissions')
+  : path.join(path.dirname(path.resolve(process.cwd())),`${path.basename(path.resolve(process.cwd()))}-private-uploads`);
+const uploadDir=path.resolve(process.env.UPLOAD_DIR || defaultUploadDir);
+const publicRoot=path.resolve(isProduction?path.join(process.cwd(),'dist'):process.cwd());
+const uploadRelativePath=path.relative(publicRoot,uploadDir);
+if(uploadRelativePath===''||(!uploadRelativePath.startsWith(`..${path.sep}`)&&uploadRelativePath!=='..'&&!path.isAbsolute(uploadRelativePath)))
+  throw new Error('UPLOAD_DIR must be outside the publicly served web root.');
+fs.mkdirSync(uploadDir,{recursive:true});
+// Prevent legacy/default project-root uploads from being served by Vite in development.
+app.use('/uploads',(_req,res)=>res.status(404).end());
+const upload=multer({storage:multer.diskStorage({
+  destination:(_req,_file,cb)=>cb(null,uploadDir),
+  filename:(_req,file,cb)=>cb(null,crypto.randomUUID()+path.extname(file.originalname).toLowerCase())
+}),limits:{fileSize:20*1024*1024},fileFilter:(_req,file,cb)=>{
+  const ext=path.extname(file.originalname).toLowerCase();
+  cb(null,['.pdf','.doc','.docx','.zip'].includes(ext));
+}});
 app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
   const assignmentId=parsePositiveId(req.params.id);
   if(assignmentId===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
