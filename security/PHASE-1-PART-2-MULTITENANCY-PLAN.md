@@ -1,6 +1,6 @@
 # Phase 1 – Part 2: multi-tenancy assessment
 
-Status: **required; tenant schema foundation and server-validated session context are implemented on the security branch. API-wide tenant scoping remains in progress.**
+Status: **required; tenant schema, session context, and organisation-scoped API routes are implemented on the security branch. Cross-tenant verification and final database hardening remain in progress.**
 
 ## Why Part 2 is needed
 
@@ -39,11 +39,11 @@ Use a versioned, transactional migration. Existing demo data should be assigned 
 
 1. Tenant ownership and role rules: **complete** (decisions above).
 2. Design and implement a schema-version mechanism and additive migration that creates the organisation and membership model without dropping existing data: **complete**.
-3. Add database constraints for same-organisation class, assignment, submission, feedback, and membership relationships: **initial triggers implemented; mandatory tenant IDs remain for step 5**.
+3. Add database constraints for same-organisation class, assignment, submission, feedback, and membership relationships: **initial triggers implemented; API writes now pass the active tenant ID. Final review for database-level rejection of omitted tenant IDs remains**.
 4. Add a trusted active-organisation context to authentication and authorization helpers: **complete; session organisation is loaded from the database and checked against an active membership**.
-5. Scope API reads and writes, then uploads/downloads, to that context.
-6. Add cross-tenant integration tests for every endpoint and role, including attempts to alter tenant IDs in request data.
-7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch.
+5. Scope API reads and writes, then uploads/downloads, to that context: **implemented across dashboards, classes, assignments, submissions, feedback, downloads, and organisation administration**.
+6. Add cross-tenant integration tests for every endpoint and role, including attempts to alter tenant IDs in request data: **core student, administrator, class, assignment, submission, and feedback boundaries covered; broaden remaining endpoint/role combinations**.
+7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch: **CI passed on the current implementation commit; migration and rollback review remains**.
 
 ## Deliberately deferred
 
