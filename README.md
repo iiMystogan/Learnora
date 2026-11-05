@@ -14,7 +14,7 @@ Open Command Prompt and paste:
 
 ```cmd
 cd /d "%USERPROFILE%"
-git clone --branch main --single-branch https://github.com/iiMystogan/Xerte-file-manager.git Learnora-main
+git clone --branch main --single-branch https://github.com/iiMystogan/Learnora.git Learnora-main
 cd Learnora-main
 npm install
 npm run dev
