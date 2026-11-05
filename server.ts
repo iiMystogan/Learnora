@@ -14,6 +14,7 @@ import { resolveClientIpAddress } from './security/client-ip.ts';
 import { canDeleteAssignment, canSeeSubmission, canSubmitAssignment } from './security/authorization.ts';
 import { validatePassword } from './security/password-policy.ts';
 import { validateSubmissionFile } from './security/upload-validation.ts';
+import { migrateTenantFoundation } from './db/migrations.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
@@ -182,6 +183,8 @@ if (!isProduction && count('SELECT count(*) AS n FROM users') === 0) {
   [a1,a2].forEach(a => db.prepare('INSERT INTO assignment_classes VALUES(?,?)').run(a,c1));
   db.prepare('INSERT INTO assignment_classes VALUES(?,?)').run(a3,c2);
 }
+
+migrateTenantFoundation(db,isProduction);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
