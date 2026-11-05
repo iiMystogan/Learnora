@@ -57,9 +57,9 @@ test('tenant foundation migration preserves and maps existing school data idempo
   const db = new Database(':memory:');
   try {
     createLegacySchema(db);
-    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('admin@demo.local','admin');
-    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('teacher@demo.local','teacher');
-    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('student@demo.local','student');
+    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('admin@school.example','admin');
+    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('teacher@school.example','teacher');
+    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('student@school.example','student');
     db.prepare('INSERT INTO classes(name) VALUES(?)').run('Class A');
     db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(1,2)').run();
     db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(1,3)').run();
