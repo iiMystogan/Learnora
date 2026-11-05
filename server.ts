@@ -424,7 +424,7 @@ app.post('/api/login',(req:any,res:any) => {
   db.prepare('DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL').run(Math.floor(Date.now() / 1000));
   const createSession = db.transaction(() => {
     db.prepare('INSERT INTO sessions(jti,user_id,expires_at,active_organization_id) VALUES(?,?,?,?)').run(jti,user.id,expiresAt,activeMembership?.organization_id ?? null);
-    audit(user.id,'auth.login','session',null);
+    audit(user.id,'auth.login','session',null,'',activeMembership?.organization_id ?? null);
   });
   createSession();
   const token = jwt.sign({id:user.id,jti},JWT_SECRET,{expiresIn:'8h'});
@@ -437,9 +437,11 @@ app.post('/api/logout',(req,res)=>{
     try {
       const payload = jwt.verify(token,JWT_SECRET,{ignoreExpiration:true}) as SessionUser & {jti?:string};
       if (Number.isSafeInteger(payload.id) && typeof payload.jti === 'string' && payload.jti) {
+        const session = db.prepare('SELECT active_organization_id FROM sessions WHERE jti=? AND user_id=?')
+          .get(payload.jti,payload.id) as {active_organization_id:number|null}|undefined;
         const revoked = db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE jti=? AND user_id=? AND revoked_at IS NULL')
           .run(payload.jti,payload.id);
-        if (revoked.changes > 0) audit(payload.id,'auth.logout','session',null);
+        if (revoked.changes > 0) audit(payload.id,'auth.logout','session',null,'',session?.active_organization_id ?? null);
       }
     } catch {
       // Invalid or tampered tokens are simply cleared; they cannot identify a trusted session.
