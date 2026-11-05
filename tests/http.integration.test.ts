@@ -198,6 +198,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     try {
       assert.equal((verifyTenantDb.prepare('SELECT organization_id FROM classes WHERE id=?').get(spoofedClassId) as {organization_id:number}).organization_id,
         currentUserData.user.organizationId,'request organization IDs must not override the session organisation');
+      verifyTenantDb.prepare('DELETE FROM classes WHERE id=?').run(spoofedClassId);
     } finally {
       verifyTenantDb.close();
     }
