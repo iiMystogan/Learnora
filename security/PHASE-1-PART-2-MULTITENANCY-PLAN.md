@@ -35,6 +35,18 @@ The additive SQLite migration, indexes, strict tenant triggers, and route enforc
 
 Use a versioned, transactional migration. Existing demo data should be assigned to one synthetic organisation. The existing `admin@demo.local` account becomes an `org_admin` membership, not a platform administrator. Production migrations must not create demo accounts or organisations. Provisioning any platform administrator must be an explicit, controlled operation. A backup and rollback procedure is required before applying a migration to a persistent environment.
 
+## Migration safety and rollback
+
+The tenant migration applies its schema and data changes in one SQLite transaction. The schema-version table is created before that transaction; a failed run can therefore leave the empty version table, but must not leave partial tenant tables, columns, backfills, or a recorded migration version. A regression test forces the ambiguous-organisation precondition to fail and checks that the transaction restores the original schema and data.
+
+Before applying the migration to a persistent database:
+
+1. Put the application in maintenance mode and stop writes.
+2. Create a consistent SQLite backup and a matching backup of any files needed to keep the environment recoverable. Verify the backup by restoring it to a temporary database and checking its integrity and foreign keys.
+3. Start the updated application and confirm the migration version, tenant counts, and foreign-key checks before reopening access.
+
+If the migration aborts, its transaction rolls back and the issue can be corrected before retrying. If a successful migration must be reversed before accepting new writes, restore the verified pre-migration backup. Do not run an automatic down migration: once tenant-scoped writes have occurred, removing tenant fields or restoring an older database could discard those writes. After writes resume, prefer a forward repair or reconcile new data before any restore.
+
 ## Step-by-step implementation sequence
 
 1. Tenant ownership and role rules: **complete** (decisions above).
@@ -43,7 +55,7 @@ Use a versioned, transactional migration. Existing demo data should be assigned 
 4. Add a trusted active-organisation context to authentication and authorization helpers: **complete; session organisation is loaded from the database and checked against an active membership**.
 5. Scope API reads and writes, then uploads/downloads, to that context: **complete across dashboards, classes, assignments, submissions, feedback, downloads, and organisation administration**.
 6. Add cross-tenant integration tests for every endpoint and role, including attempts to alter tenant IDs in request data: **complete for class, dashboard, assignment, submission, feedback, upload/download, and organisation-administration boundaries across students, teachers, and organisation administrators**.
-7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch: **CI passed; migration and rollback review remains**.
+7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch: **automated rollback test and restore procedure added; CI verification in progress**.
 
 ## Deliberately deferred
 
