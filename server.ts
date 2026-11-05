@@ -295,14 +295,17 @@ const parsePositiveId = (value: unknown): number | null => {
 
 const classExists = (classId: number, organizationId: number) =>
   !!db.prepare('SELECT 1 FROM classes WHERE id=? AND organization_id=?').get(classId,organizationId);
-const canSeeAssignment = (user: any, assignmentId: number) => {
-  if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=?').get(assignmentId);
+const canSeeAssignment = (user: any, assignmentId: number, organizationId: number) => {
+  if (user.role === 'admin') return !!db.prepare('SELECT 1 FROM assignments WHERE id=? AND organization_id=?').get(assignmentId,organizationId);
   if (user.role === 'teacher') return !!db.prepare(`SELECT 1 FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
-    JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE a.id=? AND ct.teacher_id=?`).get(assignmentId,user.id);
+    JOIN class_teachers ct ON ct.class_id=ac.class_id AND ct.organization_id=?
+    WHERE a.id=? AND a.organization_id=? AND ac.organization_id=? AND ct.teacher_id=?`)
+    .get(organizationId,assignmentId,organizationId,organizationId,user.id);
   return !!db.prepare(`SELECT 1 FROM assignments a
-    JOIN assignment_classes ac ON ac.assignment_id=a.id
-    JOIN class_students cs ON cs.class_id=ac.class_id
-    WHERE a.id=? AND a.status='published' AND cs.student_id=?`).get(assignmentId,user.id);
+    JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+    JOIN class_students cs ON cs.class_id=ac.class_id AND cs.organization_id=?
+    WHERE a.id=? AND a.organization_id=? AND a.status='published' AND cs.student_id=?`)
+    .get(organizationId,organizationId,assignmentId,organizationId,user.id);
 };
 
 
@@ -559,18 +562,32 @@ app.post('/api/classes/:id/students',authenticate,requireOrganization,requireRol
   res.json({success:true,student:{id:student.id,email,displayName:name}});
 });
 
-app.get('/api/assignments',authenticate,(req:any,res)=>{
+app.get('/api/assignments',authenticate,requireOrganization,(req:any,res)=>{
   if(req.user.role==='student'){
     return res.json(db.prepare(`SELECT a.*,c.name class_name,s.id submission_id,s.submitted_at,f.status review_status,f.comments,f.grade
       FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN classes c ON c.id=ac.class_id
-      JOIN class_students cs ON cs.class_id=c.id LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=?
-      LEFT JOIN feedback f ON f.submission_id=s.id WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline`).all(req.user.id,req.user.id));
+      JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=?
+      LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=? AND s.organization_id=?
+      LEFT JOIN feedback f ON f.submission_id=s.id AND f.organization_id=?
+      WHERE cs.student_id=? AND a.organization_id=? AND ac.organization_id=? AND c.organization_id=?
+        AND a.status='published' ORDER BY a.deadline`).all(req.organizationId,req.user.id,req.organizationId,req.organizationId,req.user.id,req.organizationId,req.organizationId,req.organizationId));
   }
-  const sql=req.user.role==='admin'?`SELECT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id LEFT JOIN classes c ON c.id=ac.class_id GROUP BY a.id ORDER BY a.created_at DESC`:
-    `SELECT DISTINCT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN classes c ON c.id=ac.class_id JOIN class_teachers ct ON ct.class_id=c.id WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
-  res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
+  const sql=req.user.role==='admin'
+    ? `SELECT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a
+       LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       LEFT JOIN classes c ON c.id=ac.class_id AND c.organization_id=?
+       WHERE a.organization_id=? GROUP BY a.id ORDER BY a.created_at DESC`
+    : `SELECT DISTINCT a.*,GROUP_CONCAT(DISTINCT c.name) class_names FROM assignments a
+       JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       JOIN classes c ON c.id=ac.class_id AND c.organization_id=?
+       JOIN class_teachers ct ON ct.class_id=c.id AND ct.organization_id=?
+       WHERE a.organization_id=? AND ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
+  const params=req.user.role==='admin'
+    ? [req.organizationId,req.organizationId,req.organizationId]
+    : [req.organizationId,req.organizationId,req.organizationId,req.organizationId,req.user.id];
+  res.json(db.prepare(sql).all(...params));
 });
-app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.post('/api/assignments',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const title=typeof req.body.title === 'string' ? req.body.title.trim() : '';
   const description=req.body.description ?? '';
   const instructions=req.body.instructions ?? '';
@@ -587,24 +604,25 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
   if(validClassIds.some((id:number)=>!classExists(id,req.organizationId))) return res.status(400).json({error:'Een of meer geselecteerde klassen bestaan niet.'});
   if(req.user.role==='teacher'&&validClassIds.some((id:number)=>!canTeachClass(req.user.id,id,req.organizationId))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
   const create=db.transaction(()=>{
-    const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)')
-      .run(title,description,instructions,deadline||null,req.user.id).lastInsertRowid as number;
-    const add=db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)'); validClassIds.forEach((classId:number)=>add.run(id,classId));
-    audit(req.user.id,'assignment.created','assignment',id,title); return id;
+    const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by,organization_id) VALUES(?,?,?,?,?,?)')
+      .run(title,description,instructions,deadline||null,req.user.id,req.organizationId).lastInsertRowid as number;
+    const add=db.prepare('INSERT INTO assignment_classes(assignment_id,class_id,organization_id) VALUES(?,?,?)');
+    validClassIds.forEach((classId:number)=>add.run(id,classId,req.organizationId));
+    audit(req.user.id,'assignment.created','assignment',id,title,req.organizationId); return id;
   });
   res.json({id:create()});
 });
-app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.delete('/api/assignments/:id',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
-  if(!canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
-  const storedFiles=db.prepare('SELECT stored_filename FROM submissions WHERE assignment_id=?').all(id) as Array<{stored_filename:string}>;
+  const assignmentInOrganization = !!db.prepare('SELECT 1 FROM assignments WHERE id=? AND organization_id=?').get(id,req.organizationId);
+  if(!assignmentInOrganization || !canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
+  const storedFiles=db.prepare('SELECT stored_filename FROM submissions WHERE assignment_id=? AND organization_id=?').all(id,req.organizationId) as Array<{stored_filename:string}>;
   const deleteAssignment=db.transaction(()=>{
-    db.prepare('DELETE FROM assignments WHERE id=?').run(id);
-    audit(req.user.id,'assignment.deleted','assignment',id);
+    db.prepare('DELETE FROM assignments WHERE id=? AND organization_id=?').run(id,req.organizationId);
+    audit(req.user.id,'assignment.deleted','assignment',id,'',req.organizationId);
   });
   deleteAssignment();
-  // Remove physical files only after the database delete and audit commit succeed.
   for(const row of storedFiles){
     if(path.basename(row.stored_filename)!==row.stored_filename) continue;
     try{fs.unlinkSync(path.join(uploadDir,row.stored_filename));}catch{}
@@ -612,52 +630,23 @@ app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(r
   res.json({success:true});
 });
 
-app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
+app.get('/api/assignments/:id/progress',authenticate,requireOrganization,requireRole('teacher','admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
-  if(!canSeeAssignment(req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
+  if(!canSeeAssignment(req.user,id,req.organizationId)) return res.status(404).json({error:'Opdracht niet gevonden.'});
   const rows=db.prepare(`SELECT u.id student_id,u.display_name student_name,u.email student_email,c.name class_name,
     s.id submission_id,s.submitted_at,f.status review_status,f.grade
-    FROM assignment_classes ac JOIN classes c ON c.id=ac.class_id
-    JOIN class_students cs ON cs.class_id=c.id JOIN users u ON u.id=cs.student_id
-    LEFT JOIN submissions s ON s.assignment_id=ac.assignment_id AND s.student_id=u.id
-    LEFT JOIN feedback f ON f.submission_id=s.id
-    WHERE ac.assignment_id=? ${req.user.role==='teacher'?'AND EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id=c.id AND ct.teacher_id=?)':''}
-    ORDER BY c.name,u.display_name`).all(...(req.user.role==='teacher'?[id,req.user.id]:[id]));
+    FROM assignment_classes ac JOIN classes c ON c.id=ac.class_id AND c.organization_id=?
+    JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=? JOIN users u ON u.id=cs.student_id
+    LEFT JOIN submissions s ON s.assignment_id=ac.assignment_id AND s.student_id=u.id AND s.organization_id=?
+    LEFT JOIN feedback f ON f.submission_id=s.id AND f.organization_id=?
+    WHERE ac.assignment_id=? AND ac.organization_id=? ${req.user.role==='teacher'?'AND EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id=c.id AND ct.organization_id=? AND ct.teacher_id=?)':''}
+    ORDER BY c.name,u.display_name`).all(...(req.user.role==='teacher'
+      ? [req.organizationId,req.organizationId,req.organizationId,req.organizationId,id,req.organizationId,req.organizationId,req.user.id]
+      : [req.organizationId,req.organizationId,req.organizationId,req.organizationId,id,req.organizationId]));
   res.json(rows);
 });
 
-app.get('/api/submissions',authenticate,(req:any,res)=>{
-  const base=`SELECT s.id,s.assignment_id,s.student_id,s.original_filename,s.file_size,s.submitted_at,
-    a.title assignment_title,u.display_name student_name,u.email student_email,c.name class_name,
-    f.comments,f.grade,f.status review_status
-    FROM submissions s JOIN assignments a ON a.id=s.assignment_id JOIN users u ON u.id=s.student_id
-    JOIN assignment_classes ac ON ac.assignment_id=a.id JOIN class_students cs ON cs.class_id=ac.class_id AND cs.student_id=s.student_id
-    JOIN classes c ON c.id=ac.class_id LEFT JOIN feedback f ON f.submission_id=s.id`;
-  const sql=req.user.role==='admin'?base+' ORDER BY s.submitted_at DESC':
-    req.user.role==='teacher'?base+' JOIN class_teachers ct ON ct.class_id=c.id WHERE ct.teacher_id=? ORDER BY s.submitted_at DESC':
-    base+' WHERE s.student_id=? ORDER BY s.submitted_at DESC';
-  res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
-});
-
-const defaultUploadDir=isProduction
-  ? path.join(process.cwd(),'uploads','submissions')
-  : path.join(path.dirname(path.resolve(process.cwd())),`${path.basename(path.resolve(process.cwd()))}-private-uploads`);
-const uploadDir=path.resolve(process.env.UPLOAD_DIR || defaultUploadDir);
-const publicRoot=path.resolve(isProduction?path.join(process.cwd(),'dist'):process.cwd());
-const uploadRelativePath=path.relative(publicRoot,uploadDir);
-if(uploadRelativePath===''||(!uploadRelativePath.startsWith(`..${path.sep}`)&&uploadRelativePath!=='..'&&!path.isAbsolute(uploadRelativePath)))
-  throw new Error('UPLOAD_DIR must be outside the publicly served web root.');
-fs.mkdirSync(uploadDir,{recursive:true});
-// Prevent legacy/default project-root uploads from being served by Vite in development.
-app.use('/uploads',(_req,res)=>res.status(404).end());
-const upload=multer({storage:multer.diskStorage({
-  destination:(_req,_file,cb)=>cb(null,uploadDir),
-  filename:(_req,file,cb)=>cb(null,crypto.randomUUID()+path.extname(file.originalname).toLowerCase())
-}),limits:{fileSize:20*1024*1024},fileFilter:(_req,file,cb)=>{
-  const ext=path.extname(file.originalname).toLowerCase();
-  cb(null,['.pdf','.doc','.docx','.zip'].includes(ext));
-}});
 app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:any,res,next:any)=>{
   const assignmentId=parsePositiveId(req.params.id);
   if(assignmentId===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
