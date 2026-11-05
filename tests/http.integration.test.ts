@@ -155,11 +155,18 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
 
     // Authentication endpoints: invalid credentials, current user and logout cookie handling.
     assert.equal((await request('/api/login', { method: 'POST', body: { email: 'admin@demo.local', password: 'incorrect-password' } })).status, 401);
+    assert.equal((await request('/api/login', { method: 'POST', body: {
+      email: 'admin@demo.local', password: 'Admin123!', organizationId: 999999,
+    } })).status, 403, 'login must verify a requested organisation against active memberships');
     let admin = await login('admin@demo.local', 'Admin123!');
     const secondAdminSession = await login('admin@demo.local', 'Admin123!');
     const currentUser = await request('/api/me', { cookie: admin });
     assert.equal(currentUser.status, 200);
-    assert.equal(((await currentUser.json()) as { user: { role: string } }).user.role, 'admin');
+    const currentUserData = await currentUser.json() as {user:{role:string;organizationId:number|null;organizationRole:string|null}};
+    assert.equal(currentUserData.user.role, 'admin');
+    assert.equal(typeof currentUserData.user.organizationId, 'number',
+      'the active organisation must come from the server-validated session');
+    assert.equal(currentUserData.user.organizationRole, 'org_admin');
     assert.equal((await request('/api/logout', { method: 'POST', cookie: admin, csrf: false })).status, 403,
       'logout must reject requests without a CSRF token');
     assert.equal((await request('/api/me', { cookie: admin })).status, 200,
