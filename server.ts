@@ -257,6 +257,16 @@ const audit = (actor: number, action: string, type: string, id: number|null, det
   db.prepare('INSERT INTO audit_logs(actor_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)').run(actor,action,type,id,details);
 const canTeachClass = (teacherId: number, classId: number) =>
   !!db.prepare('SELECT 1 FROM class_teachers WHERE teacher_id=? AND class_id=?').get(teacherId,classId);
+const isBoundedString = (value: unknown, maxLength: number): value is string =>
+  typeof value === 'string' && value.length <= maxLength;
+const isValidEmail = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length <= 254 &&
+  /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value.trim());
+const isValidDateOnly = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
 const parsePositiveId = (value: unknown): number | null => {
   const id = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -454,8 +464,10 @@ app.get('/api/classes',authenticate,(req:any,res)=>{
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const name=String(req.body.name||'').trim();
-  if(!name) return res.status(400).json({error:'Vul een klasnaam in.'});
+  const name=typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  const yearGroup=req.body.yearGroup ?? '';
+  if(!name||name.length>120||!isBoundedString(yearGroup,32))
+    return res.status(400).json({error:'Vul een klasnaam en een geldig leerjaar in (maximaal 120 en 32 tekens).'});
   let assignedTeacherId: number|undefined;
   if(req.user.role==='admin' && req.body.teacherId !== undefined && req.body.teacherId !== null && req.body.teacherId !== ''){
     assignedTeacherId=Number(req.body.teacherId);
@@ -465,7 +477,7 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
     }
   }
   const create=db.transaction(()=>{
-    const id=db.prepare('INSERT INTO classes(name,year_group) VALUES(?,?)').run(name,String(req.body.yearGroup||'')).lastInsertRowid as number;
+    const id=db.prepare('INSERT INTO classes(name,year_group) VALUES(?,?)').run(name,yearGroup).lastInsertRowid as number;
     if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,req.user.id);
     else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,assignedTeacherId);
     audit(req.user.id,'class.created','class',id,name); return id;
@@ -485,8 +497,9 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
   if(classId===null) return res.status(400).json({error:'Ongeldig klasnummer.'});
   if(!classExists(classId)) return res.status(404).json({error:'Klas niet gevonden.'});
   if(req.user.role==='teacher'&&!canTeachClass(req.user.id,classId)) return res.status(403).json({error:'Geen toegang tot deze klas.'});
-  const email=String(req.body.email||'').trim().toLowerCase(), name=String(req.body.displayName||'').trim();
-  if(!email||!name) return res.status(400).json({error:'Naam en e-mailadres zijn verplicht.'});
+  const email=typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const name=typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
+  if(!isValidEmail(email)||!name||name.length>120) return res.status(400).json({error:'Vul een geldige naam (maximaal 120 tekens) en e-mailadres in.'});
   let student=db.prepare("SELECT * FROM users WHERE email=?").get(email) as any;
   if(student&&student.role!=='student') return res.status(400).json({error:'Dit account is geen studentaccount.'});
   if(student&&!student.active) return res.status(400).json({error:'Dit studentaccount is niet actief.'});
@@ -513,10 +526,16 @@ app.get('/api/assignments',authenticate,(req:any,res)=>{
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
-  const title=String(req.body.title||'').trim();
+  const title=typeof req.body.title === 'string' ? req.body.title.trim() : '';
+  const description=req.body.description ?? '';
+  const instructions=req.body.instructions ?? '';
+  const deadline=req.body.deadline ?? '';
   const rawClassIds=Array.isArray(req.body.classIds)?req.body.classIds:[];
   const classIds=rawClassIds.map(parsePositiveId);
-  if(!title||!classIds.length) return res.status(400).json({error:'Titel en minimaal één klas zijn verplicht.'});
+  if(!title||title.length>200||!classIds.length) return res.status(400).json({error:'Titel (maximaal 200 tekens) en minimaal één klas zijn verplicht.'});
+  if(!isBoundedString(description,4000)||!isBoundedString(instructions,8000)||
+    !(deadline===''||deadline===null||isValidDateOnly(deadline)))
+    return res.status(400).json({error:'Omschrijving, instructies of deadline zijn ongeldig of te lang.'});
   if(classIds.some((id:number|null)=>id===null)) return res.status(400).json({error:'Een of meer klasnummers zijn ongeldig.'});
   const validClassIds=classIds as number[];
   if(new Set(validClassIds).size!==validClassIds.length) return res.status(400).json({error:'Een klas mag maar één keer worden geselecteerd.'});
@@ -524,7 +543,7 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
   if(req.user.role==='teacher'&&validClassIds.some((id:number)=>!canTeachClass(req.user.id,id))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)')
-      .run(title,String(req.body.description||''),String(req.body.instructions||''),req.body.deadline||null,req.user.id).lastInsertRowid as number;
+      .run(title,description,instructions,deadline||null,req.user.id).lastInsertRowid as number;
     const add=db.prepare('INSERT INTO assignment_classes VALUES(?,?)'); validClassIds.forEach((classId:number)=>add.run(id,classId));
     audit(req.user.id,'assignment.created','assignment',id,title); return id;
   });
@@ -620,11 +639,13 @@ app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','adm
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig inzendingsnummer.'});
   if(!canSeeSubmission(db,req.user,id)) return res.status(404).json({error:'Inzending niet gevonden.'});
-  const comments=String(req.body.comments||'').trim();
-  if(!comments) return res.status(400).json({error:'Feedback mag niet leeg zijn.'});
+  const comments=typeof req.body.comments === 'string' ? req.body.comments.trim() : '';
+  const grade=req.body.grade ?? '';
+  if(!comments||comments.length>10000||!isBoundedString(grade,50))
+    return res.status(400).json({error:'Feedback is verplicht (maximaal 10.000 tekens) en het cijfer mag maximaal 50 tekens zijn.'});
   db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
     ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP`)
-    .run(id,req.user.id,comments,String(req.body.grade||''));
+    .run(id,req.user.id,comments,grade);
   audit(req.user.id,'feedback.saved','submission',id);
   res.json({success:true});
 });
@@ -659,8 +680,8 @@ app.get('/api/admin/users',authenticate,requireRole('admin'),(_req,res)=>{
   res.json(db.prepare('SELECT id,email,display_name displayName,role,active,last_login lastLogin,created_at createdAt FROM users ORDER BY role,display_name').all());
 });
 app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)=>{
-  const id=Number(req.params.id);
-  if(!Number.isSafeInteger(id)||id<=0) return res.status(400).json({error:'Ongeldig gebruikers-ID.'});
+  const id=parsePositiveId(req.params.id);
+  if(id===null) return res.status(400).json({error:'Ongeldig gebruikers-ID.'});
   const target=db.prepare('SELECT id,email,display_name,role,active FROM users WHERE id=?').get(id) as any;
   if(!target) return res.status(404).json({error:'Gebruiker niet gevonden.'});
 
@@ -695,10 +716,11 @@ app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)
   res.json({success:true,sessionsRevoked:true,reauthenticate:id===req.user.id});
 });
 app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
-  const email=String(req.body.email||'').trim().toLowerCase(), name=String(req.body.displayName||'').trim();
-  const role=String(req.body.role||'');
+  const email=typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const name=typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
+  const role=typeof req.body.role === 'string' ? req.body.role : '';
   const passwordError=validatePassword(req.body.password);
-  if(!email||!name||!['teacher','student','admin'].includes(role)||passwordError)
+  if(!isValidEmail(email)||!name||name.length>120||!['teacher','student','admin'].includes(role)||passwordError)
     return res.status(400).json({error:passwordError||'Vul naam, geldig e-mailadres en een geldige rol in.'});
   try{
     const id=db.prepare('INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)').run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid;
