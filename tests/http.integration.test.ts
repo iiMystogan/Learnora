@@ -618,7 +618,13 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/admin/overview', { cookie: admin })).status, 200);
     assert.equal((await request('/api/admin/overview', { cookie: teacherJansen })).status, 403);
     assert.equal((await request('/api/admin/overview', { cookie: studentNoor })).status, 403);
-    assert.equal((await request('/api/admin/audit', { cookie: admin })).status, 200);
+    const auditResponse = await request('/api/admin/audit', { cookie: admin });
+    assert.equal(auditResponse.status, 200);
+    const auditRows = await auditResponse.json() as Array<{action:string;details:string}>;
+    assert.ok(auditRows.some((row) => row.action === 'auth.login'), 'successful logins must be audited');
+    assert.ok(auditRows.some((row) => row.action === 'auth.logout'), 'successful logouts must be audited');
+    assert.ok(auditRows.every((row) => !/password|token|198\\.51\\.100/.test(row.details)),
+      'audit details must not expose credentials, tokens or raw client IP addresses');
     const adminUsers = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{id:number;email:string;role:string}>;
     const seededStudent = adminUsers.find((item) => item.email === 'student.noor@demo.local');
     assert.ok(seededStudent);
