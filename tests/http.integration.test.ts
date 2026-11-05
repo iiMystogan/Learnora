@@ -354,6 +354,12 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       method: 'POST', cookie: studentSara, body: disguisedUpload,
     });
     assert.equal(rejectedUpload.status, 400, 'a file with a PDF extension but HTML content must be rejected');
+    const mismatchedMime = new FormData();
+    mismatchedMime.append('file', new Blob(['%PDF-1.4\\nvalid-looking signature\\n'], { type: 'text/plain' }), 'mismatched.pdf');
+    const rejectedMime = await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+      method: 'POST', cookie: studentSara, body: mismatchedMime,
+    });
+    assert.equal(rejectedMime.status, 400, 'a file with a PDF signature but mismatched MIME type must be rejected');
 
     // Sara belongs to Media 3B. Submit a small PDF through the real multipart upload route.
     const form = new FormData();
