@@ -475,42 +475,65 @@ app.post('/api/account/password',authenticate,(req:any,res)=>{
   res.json({success:true,sessionsRevoked:true,reauthenticate:true});
 });
 
-app.get('/api/dashboard',authenticate,(req:any,res)=>{
+app.get('/api/dashboard',authenticate,requireOrganization,(req:any,res)=>{
   const u=req.user;
+  const orgId=req.organizationId as number;
   if(u.role==='student'){
-    const assignments=db.prepare(`SELECT a.*, c.name AS class_name, s.id AS submission_id,s.submitted_at,
+    const assignments=db.prepare(`SELECT a.*,c.name AS class_name,s.id AS submission_id,s.submitted_at,
       f.status AS review_status,f.comments,f.grade
-      FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id
-      JOIN classes c ON c.id=ac.class_id JOIN class_students cs ON cs.class_id=c.id
-      LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=?
-      LEFT JOIN feedback f ON f.submission_id=s.id
-      WHERE cs.student_id=? AND a.status='published' ORDER BY a.deadline IS NULL,a.deadline`).all(u.id,u.id);
-    return res.json({assignments,classes:db.prepare('SELECT c.* FROM classes c JOIN class_students cs ON cs.class_id=c.id WHERE cs.student_id=?').all(u.id)});
+      FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+      JOIN classes c ON c.id=ac.class_id AND c.organization_id=?
+      JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=?
+      LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=? AND s.organization_id=?
+      LEFT JOIN feedback f ON f.submission_id=s.id AND f.organization_id=?
+      WHERE cs.student_id=? AND a.organization_id=? AND a.status='published' ORDER BY a.deadline IS NULL,a.deadline`)
+      .all(orgId,orgId,orgId,u.id,orgId,orgId,u.id,orgId);
+    const classes=db.prepare(`SELECT c.* FROM classes c JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=?
+      WHERE c.organization_id=? AND cs.student_id=?`).all(orgId,orgId,u.id);
+    return res.json({assignments,classes});
   }
-  const classWhere=u.role==='admin'?'':'WHERE ct.teacher_id=?';
-  const classes=db.prepare(`SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
-    ${u.role==='admin'?'LEFT JOIN class_teachers ct ON ct.class_id=c.id':'JOIN class_teachers ct ON ct.class_id=c.id'}
-    LEFT JOIN class_students cs ON cs.class_id=c.id ${classWhere} GROUP BY c.id ORDER BY c.name`).all(...(u.role==='admin'?[]:[u.id]));
-  const assignmentSql=u.role==='admin'?`SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count
-    FROM assignments a
-    LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id
-    LEFT JOIN submissions s ON s.assignment_id=a.id
-      AND EXISTS (SELECT 1 FROM class_students csx WHERE csx.class_id=ac.class_id AND csx.student_id=s.student_id)
-    GROUP BY a.id ORDER BY a.created_at DESC`:
-    `SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count
-    FROM assignments a
-    JOIN assignment_classes ac ON ac.assignment_id=a.id
-    JOIN class_teachers ct ON ct.class_id=ac.class_id
-    LEFT JOIN submissions s ON s.assignment_id=a.id
-      AND EXISTS (SELECT 1 FROM class_students csx WHERE csx.class_id=ac.class_id AND csx.student_id=s.student_id)
-    WHERE ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
-  const assignments=db.prepare(assignmentSql).all(...(u.role==='admin'?[]:[u.id]));
-  const totals=db.prepare(`SELECT COUNT(DISTINCT a.id) assignments,COUNT(DISTINCT s.id) submissions,
-    COUNT(DISTINCT cs.student_id) students FROM assignments a
-    LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id
-    LEFT JOIN class_students cs ON cs.class_id=ac.class_id
-    LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=cs.student_id
-    ${u.role==='admin'?'':'JOIN class_teachers ct ON ct.class_id=ac.class_id WHERE ct.teacher_id=?'}`).get(...(u.role==='admin'?[]:[u.id]));
+  const classesSql=u.role==='admin'
+    ? `SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
+       LEFT JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=?
+       WHERE c.organization_id=? GROUP BY c.id ORDER BY c.name`
+    : `SELECT c.*,COUNT(DISTINCT cs.student_id) AS student_count FROM classes c
+       JOIN class_teachers ct ON ct.class_id=c.id AND ct.organization_id=?
+       LEFT JOIN class_students cs ON cs.class_id=c.id AND cs.organization_id=?
+       WHERE c.organization_id=? AND ct.teacher_id=? GROUP BY c.id ORDER BY c.name`;
+  const classes=u.role==='admin'
+    ? db.prepare(classesSql).all(orgId,orgId)
+    : db.prepare(classesSql).all(orgId,orgId,orgId,u.id);
+  const assignmentSql=u.role==='admin'
+    ? `SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count
+       FROM assignments a
+       LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       LEFT JOIN submissions s ON s.assignment_id=a.id AND s.organization_id=?
+       WHERE a.organization_id=? GROUP BY a.id ORDER BY a.created_at DESC`
+    : `SELECT a.*,COUNT(DISTINCT ac.class_id) AS class_count,COUNT(DISTINCT s.id) AS submission_count
+       FROM assignments a
+       JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       JOIN class_teachers ct ON ct.class_id=ac.class_id AND ct.organization_id=?
+       LEFT JOIN submissions s ON s.assignment_id=a.id AND s.organization_id=?
+         AND EXISTS (SELECT 1 FROM class_students csx WHERE csx.class_id=ac.class_id AND csx.organization_id=? AND csx.student_id=s.student_id)
+       WHERE a.organization_id=? AND ct.teacher_id=? GROUP BY a.id ORDER BY a.created_at DESC`;
+  const assignments=u.role==='admin'
+    ? db.prepare(assignmentSql).all(orgId,orgId,orgId)
+    : db.prepare(assignmentSql).all(orgId,orgId,orgId,orgId,orgId,u.id);
+  const totalsSql=u.role==='admin'
+    ? `SELECT COUNT(DISTINCT a.id) assignments,COUNT(DISTINCT s.id) submissions,COUNT(DISTINCT cs.student_id) students
+       FROM assignments a LEFT JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       LEFT JOIN class_students cs ON cs.class_id=ac.class_id AND cs.organization_id=?
+       LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=cs.student_id AND s.organization_id=?
+       WHERE a.organization_id=?`
+    : `SELECT COUNT(DISTINCT a.id) assignments,COUNT(DISTINCT s.id) submissions,COUNT(DISTINCT cs.student_id) students
+       FROM assignments a JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+       JOIN class_teachers ct ON ct.class_id=ac.class_id AND ct.organization_id=?
+       LEFT JOIN class_students cs ON cs.class_id=ac.class_id AND cs.organization_id=?
+       LEFT JOIN submissions s ON s.assignment_id=a.id AND s.student_id=cs.student_id AND s.organization_id=?
+       WHERE a.organization_id=? AND ct.teacher_id=?`;
+  const totals=u.role==='admin'
+    ? db.prepare(totalsSql).get(orgId,orgId,orgId,orgId)
+    : db.prepare(totalsSql).get(orgId,orgId,orgId,orgId,orgId,u.id);
   res.json({classes,assignments,totals});
 });
 
