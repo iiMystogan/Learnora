@@ -469,7 +469,7 @@ app.post('/api/account/password',authenticate,(req:any,res)=>{
   const updatePassword=db.transaction(()=>{
     db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(bcrypt.hashSync(newPassword,10),req.user.id);
     db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(req.user.id);
-    audit(req.user.id,'user.password_changed','user',req.user.id,'self-service');
+    audit(req.user.id,'user.password_changed','user',req.user.id,'self-service',req.organizationId);
   });
   updatePassword();
   res.clearCookie('session',{path:'/'});
