@@ -620,7 +620,7 @@ app.post('/api/assignments/:id/submit',authenticate,requireRole('student'),(req:
 },upload.single('file'),(req:any,res)=>{
   const assignmentId=Number(req.params.id), file=req.file;
   if(!file) return res.status(400).json({error:'Kies een PDF-, Word- of ZIP-bestand (maximaal 20 MB).'});
-  if (!validateSubmissionFile(file.path, file.originalname)) {
+  if (!validateSubmissionFile(file.path, file.originalname, file.mimetype)) {
     try { fs.unlinkSync(file.path); } catch {}
     return res.status(400).json({error:'Het bestandstype komt niet overeen met de inhoud. Upload een geldig PDF-, Word- of ZIP-bestand.'});
   }
