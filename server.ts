@@ -593,8 +593,17 @@ app.get('/api/submissions',authenticate,(req:any,res)=>{
   res.json(db.prepare(sql).all(...(req.user.role==='admin'?[]:[req.user.id])));
 });
 
-const uploadDir=process.env.UPLOAD_DIR || path.join(__dirname,'uploads','submissions');
+const defaultUploadDir=isProduction
+  ? path.join(process.cwd(),'uploads','submissions')
+  : path.join(path.dirname(path.resolve(process.cwd())),`${path.basename(path.resolve(process.cwd()))}-private-uploads`);
+const uploadDir=path.resolve(process.env.UPLOAD_DIR || defaultUploadDir);
+const publicRoot=path.resolve(isProduction?path.join(process.cwd(),'dist'):process.cwd());
+const uploadRelativePath=path.relative(publicRoot,uploadDir);
+if(uploadRelativePath===''||(!uploadRelativePath.startsWith(`..${path.sep}`)&&uploadRelativePath!=='..'&&!path.isAbsolute(uploadRelativePath)))
+  throw new Error('UPLOAD_DIR must be outside the publicly served web root.');
 fs.mkdirSync(uploadDir,{recursive:true});
+// Prevent legacy/default project-root uploads from being served by Vite in development.
+app.use('/uploads',(_req,res)=>res.status(404).end());
 const upload=multer({storage:multer.diskStorage({
   destination:(_req,_file,cb)=>cb(null,uploadDir),
   filename:(_req,file,cb)=>cb(null,crypto.randomUUID()+path.extname(file.originalname).toLowerCase())
