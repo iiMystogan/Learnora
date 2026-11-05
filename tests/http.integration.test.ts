@@ -365,6 +365,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     });
     assert.equal(upload.status, 200, 'submission upload returned HTTP ' + upload.status);
     const submission = await upload.json() as { id: number };
+    const uploadedNames = await readdir(path.join(tempDir, 'uploads'));
+    assert.equal(uploadedNames.length, 1);
+    assert.equal((await request(`/uploads/submissions/${uploadedNames[0]}`)).status, 404,
+      'uploaded files must not be directly served from a public URL');
 
     // If replacement persistence fails, remove the new upload and preserve the old submission file.
     const replacementDb = new Database(path.join(tempDir, 'test.sqlite'));
