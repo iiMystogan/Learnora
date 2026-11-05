@@ -54,6 +54,10 @@ npm run dev
 
 Only run `npm install` again if project dependencies have changed.
 
+## ICT-productdemonstratie
+
+Volg [de ICT-demo-checklist](security/ICT-DEMO-CHECKLIST.md) voor de demonstratie van beheerder-, docent- en leerlingstromen. Gebruik alleen de lokale demoaccounts hieronder en synthetische gegevens.
+
 ## Demo accounts
 
 | Role | Email | Password |
