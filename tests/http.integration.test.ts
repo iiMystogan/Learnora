@@ -235,6 +235,18 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const adminClassesResponse = await request('/api/classes', { cookie: admin });
     assert.equal(adminClassesResponse.status, 200);
     const adminClasses = await adminClassesResponse.json() as Array<{ id: number; name: string }>;
+    const migratedDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      const migratedOrganization = migratedDb.prepare('SELECT id,slug FROM organizations').get() as {id:number;slug:string};
+      assert.equal(migratedOrganization.slug, 'learnora-demo');
+      const migratedAdmin = migratedDb.prepare("SELECT role FROM organization_memberships WHERE organization_id=? AND user_id=(SELECT id FROM users WHERE email='admin@demo.local')")
+        .get(migratedOrganization.id) as {role:string};
+      assert.equal(migratedAdmin.role, 'org_admin');
+      assert.equal(Number((migratedDb.prepare('SELECT COUNT(*) AS count FROM classes WHERE organization_id=?').get(migratedOrganization.id) as {count:number}).count), 2);
+      assert.equal(Number((migratedDb.prepare('SELECT version FROM schema_migrations').get() as {version:number}).version), 1);
+    } finally {
+      migratedDb.close();
+    }
     const ictClass = adminClasses.find((item) => item.name === 'ICT 2A');
     const mediaClass = adminClasses.find((item) => item.name === 'Media 3B');
     assert.ok(ictClass && mediaClass, 'demo seed classes should exist');
