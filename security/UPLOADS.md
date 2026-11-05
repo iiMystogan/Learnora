@@ -2,7 +2,7 @@
 
 ## Uploadcontroles
 
-Learnora accepteert alleen de extensies PDF, DOC, DOCX en ZIP en hanteert een maximale uploadgrootte van 20 MB. De server genereert zelf een willekeurige opslagnaam; de oorspronkelijke bestandsnaam wordt alleen als metadata bewaard.
+Learnora accepteert alleen de extensies PDF, DOC, DOCX en ZIP en hanteert een maximale uploadgrootte van 20 MB. De server genereert zelf een willekeurige opslagnaam; de oorspronkelijke bestandsnaam wordt alleen als metadata bewaard. De standaardopslag staat buiten de publiek geserveerde webroot. Startup weigert een `UPLOAD_DIR` die binnen de Vite-webroot (development) of de statische `dist`-map (production) ligt; directe `/uploads/...`-URL's worden geweigerd. Bestanden zijn alleen bereikbaar via de geautoriseerde downloadroute.
 
 Naast de extensie controleert `security/upload-validation.ts` nu ook de bestandsheader:
 - PDF: zoekt naar de PDF-signatuur in de eerste 1024 bytes.
