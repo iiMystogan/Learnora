@@ -88,6 +88,19 @@ test('tenant foundation migration preserves and maps existing school data idempo
     assert.equal((db.prepare('SELECT is_platform_admin FROM users WHERE id=1').get() as {is_platform_admin:number}).is_platform_admin,0);
     assert.equal((db.prepare('SELECT version FROM schema_migrations').get() as {version:number}).version,1);
 
+    const otherOrganizationId = Number(db.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
+    db.prepare('INSERT INTO classes(name,organization_id) VALUES(?,?)').run('Class B',otherOrganizationId);
+    assert.throws(
+      () => db.prepare('INSERT INTO assignment_classes(assignment_id,class_id,organization_id) VALUES(1,2,?)').run(otherOrganizationId),
+      /same organisation/,
+      'database trigger should reject cross-organisation assignment links',
+    );
+    assert.throws(
+      () => db.prepare('INSERT INTO sessions(jti,user_id,active_organization_id) VALUES(?,?,?)').run('invalid-session',3,otherOrganizationId),
+      /active membership/,
+      'database trigger should reject a session without an active tenant membership',
+    );
+
     migrateTenantFoundation(db,false);
     assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organizations').get() as {count:number}).count),1);
     assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organization_memberships').get() as {count:number}).count),3);
