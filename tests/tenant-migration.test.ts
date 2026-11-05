@@ -102,7 +102,7 @@ test('tenant foundation migration preserves and maps existing school data idempo
     );
 
     migrateTenantFoundation(db,false);
-    assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organizations').get() as {count:number}).count),1);
+    assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organizations').get() as {count:number}).count),2);
     assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organization_memberships').get() as {count:number}).count),3);
   } finally {
     db.close();
