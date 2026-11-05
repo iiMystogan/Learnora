@@ -22,6 +22,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Update the TypeScript runner within its declared major range
+        run: npm update tsx
       - name: Apply compatible dependency security fixes
         run: npm audit fix || true
       - name: Verify clean install
