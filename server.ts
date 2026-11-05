@@ -585,7 +585,7 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
   const validClassIds=classIds as number[];
   if(new Set(validClassIds).size!==validClassIds.length) return res.status(400).json({error:'Een klas mag maar één keer worden geselecteerd.'});
   if(validClassIds.some((id:number)=>!classExists(id,req.organizationId))) return res.status(400).json({error:'Een of meer geselecteerde klassen bestaan niet.'});
-  if(req.user.role==='teacher'&&validClassIds.some((id:number)=>!canTeachClass(req.user.id,id))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
+  if(req.user.role==='teacher'&&validClassIds.some((id:number)=>!canTeachClass(req.user.id,id,req.organizationId))) return res.status(403).json({error:'Je kunt alleen opdrachten koppelen aan je eigen klassen.'});
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)')
       .run(title,description,instructions,deadline||null,req.user.id).lastInsertRowid as number;
