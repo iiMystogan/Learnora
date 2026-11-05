@@ -223,6 +223,77 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const otherOrgAssignments=await request('/api/assignments',{cookie:otherOrgCookie});
     assert.deepEqual((await otherOrgAssignments.json() as Array<{title:string}>).map((item)=>item.title),['Other School Assignment'],
       'the assignment list must follow the active organisation in the session');
+    const otherOrgProgress=await request(`/api/assignments/${otherAssignmentId}/progress`,{cookie:otherOrgCookie});
+    assert.equal(otherOrgProgress.status,200);
+    assert.deepEqual((await otherOrgProgress.json() as Array<{student_email:string}>).map((item)=>item.student_email),['student.sara@demo.local']);
+    assert.equal((await request(`/api/assignments/${otherAssignmentId}/progress`,{cookie:admin})).status,404,
+      'assignment progress must not cross the active organisation boundary');
+    assert.equal((await request(`/api/submissions/${otherSubmissionId}/download`,{cookie:admin})).status,404,
+      'downloads must hide submissions owned by another organisation');
+
+    const otherAdminUsers=await request('/api/admin/users',{cookie:otherOrgCookie});
+    const otherAdminUserRows=await otherAdminUsers.json() as Array<{id:number;email:string}>;
+    assert.ok(otherAdminUserRows.some((item)=>item.id===otherOrgOnlyUserId));
+    assert.equal(otherAdminUserRows.some((item)=>item.email==='docent.jansen@demo.local'),false,
+      'admin user listings must be limited to current-organisation memberships');
+    const primaryAdminUsers=await request('/api/admin/users',{cookie:admin});
+    assert.equal((await primaryAdminUsers.json() as Array<{id:number}>).some((item)=>item.id===otherOrgOnlyUserId),false);
+    const otherAudit=await request('/api/admin/audit',{cookie:otherOrgCookie});
+    assert.equal(otherAudit.status,200);
+    assert.ok((await otherAudit.json() as Array<{organization_id:number}>).every((row)=>row.organization_id===otherOrganizationId));
+    const primaryAudit=await request('/api/admin/audit',{cookie:admin});
+    assert.ok((await primaryAudit.json() as Array<{organization_id:number}>).every((row)=>row.organization_id===currentUserData.user.organizationId));
+
+    const otherTeacherLogin=await request('/api/login',{method:'POST',body:{
+      email:'docent.visser@demo.local',password:'Teacher123!',organizationId:otherOrganizationId,
+    }});
+    assert.equal(otherTeacherLogin.status,200);
+    const otherTeacherCookie=(otherTeacherLogin.headers.get('set-cookie')||'').split(';',1)[0];
+    assert.deepEqual((await (await request('/api/classes',{cookie:otherTeacherCookie})).json() as Array<{name:string}>).map((item)=>item.name),['Other School Class']);
+    assert.deepEqual((await (await request('/api/assignments',{cookie:otherTeacherCookie})).json() as Array<{title:string}>).map((item)=>item.title),['Other School Assignment']);
+    assert.deepEqual((await (await request('/api/submissions',{cookie:otherTeacherCookie})).json() as Array<{id:number}>).map((item)=>item.id),[otherSubmissionId]);
+    assert.equal((await request(`/api/submissions/${otherSubmissionId}/feedback`,{method:'POST',cookie:otherTeacherCookie,body:{
+      comments:'Teacher in the owning school',grade:'9',
+    }})).status,200);
+    const primaryTeacherCookie=await login('docent.jansen@demo.local','Teacher123!');
+    assert.equal((await request(`/api/assignments/${otherAssignmentId}/progress`,{cookie:primaryTeacherCookie})).status,404);
+    assert.equal((await request(`/api/submissions/${otherSubmissionId}/feedback`,{method:'POST',cookie:primaryTeacherCookie,body:{
+      comments:'Cross-tenant teacher feedback',grade:'1',
+    }})).status,404);
+    assert.equal((await request(`/api/submissions/${otherSubmissionId}/download`,{cookie:primaryTeacherCookie})).status,404);
+
+    const otherStudentCannotSubmit=await request(`/api/assignments/${primaryAssignmentId}/submit`,{
+      method:'POST',cookie:(otherStudentLogin.headers.get('set-cookie')||'').split(';',1)[0],body:new FormData(),
+    });
+    assert.equal(otherStudentCannotSubmit.status,403,'students cannot upload to another organisation\'s assignment');
+
+    const tenantSpoofAssignment=await request('/api/assignments',{method:'POST',cookie:admin,body:{
+      title:'Tenant ID must come from session',classIds:[primaryClassId],organizationId:otherOrganizationId,
+    }});
+    assert.equal(tenantSpoofAssignment.status,200);
+    const tenantSpoofAssignmentId=(await tenantSpoofAssignment.json() as {id:number}).id;
+    const tenantVerifyDb=new Database(path.join(tempDir,'test.sqlite'));
+    try {
+      assert.equal((tenantVerifyDb.prepare('SELECT organization_id FROM assignments WHERE id=?').get(tenantSpoofAssignmentId) as {organization_id:number}).organization_id,
+        currentUserData.user.organizationId);
+      tenantVerifyDb.prepare('DELETE FROM assignments WHERE id=?').run(tenantSpoofAssignmentId);
+    } finally {
+      tenantVerifyDb.close();
+    }
+    const tenantSpoofUser=await request('/api/admin/users',{method:'POST',cookie:admin,body:{
+      email:'tenant-spoof-user@demo.local',displayName:'Tenant Spoof User',role:'student',password:'TenantSpoofPass123!',
+      organizationId:otherOrganizationId,
+    }});
+    assert.equal(tenantSpoofUser.status,200);
+    const tenantSpoofUserId=(await tenantSpoofUser.json() as {id:number}).id;
+    const tenantUserVerifyDb=new Database(path.join(tempDir,'test.sqlite'));
+    try {
+      const memberships=tenantUserVerifyDb.prepare('SELECT organization_id FROM organization_memberships WHERE user_id=?').all(tenantSpoofUserId) as Array<{organization_id:number}>;
+      assert.deepEqual(memberships.map((item)=>item.organization_id),[currentUserData.user.organizationId]);
+      tenantUserVerifyDb.prepare('DELETE FROM users WHERE id=?').run(tenantSpoofUserId);
+    } finally {
+      tenantUserVerifyDb.close();
+    }
     assert.equal((await request(`/api/assignments/${otherAssignmentId}`,{method:'DELETE',cookie:admin})).status,404,
       'an assignment from another organisation must not be deletable by numeric ID');
     assert.equal((await request('/api/assignments',{method:'POST',cookie:admin,body:{
