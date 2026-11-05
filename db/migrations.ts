@@ -25,6 +25,105 @@ const addColumnIfMissing = (db: MigrationDatabase, table: string, definition: st
 const countRows = (db: MigrationDatabase, table: string): number =>
   Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
 
+const installTenantIntegrityTriggers = (db: MigrationDatabase): void => {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS tenant_class_teachers_insert
+    BEFORE INSERT ON class_teachers
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.teacher_id AND m.role IN ('teacher','org_admin') AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'class teacher must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_teachers_update
+    BEFORE UPDATE OF class_id,teacher_id,organization_id ON class_teachers
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.teacher_id AND m.role IN ('teacher','org_admin') AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'class teacher must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_students_insert
+    BEFORE INSERT ON class_students
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.student_id AND m.role='student' AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'class student must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_class_students_update
+    BEFORE UPDATE OF class_id,student_id,organization_id ON class_students
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.student_id AND m.role='student' AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'class student must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignment_classes_insert
+    BEFORE INSERT ON assignment_classes
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM assignments a WHERE a.id=NEW.assignment_id AND a.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+    )
+    BEGIN SELECT RAISE(ABORT,'assignment and class must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignment_classes_update
+    BEFORE UPDATE OF assignment_id,class_id,organization_id ON assignment_classes
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM assignments a WHERE a.id=NEW.assignment_id AND a.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM classes c WHERE c.id=NEW.class_id AND c.organization_id=NEW.organization_id)
+    )
+    BEGIN SELECT RAISE(ABORT,'assignment and class must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_submissions_insert
+    BEFORE INSERT ON submissions
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM assignments a WHERE a.id=NEW.assignment_id AND a.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.student_id AND m.role='student' AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'submission must belong to the same organisation as its student and assignment'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_submissions_update
+    BEFORE UPDATE OF assignment_id,student_id,organization_id ON submissions
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM assignments a WHERE a.id=NEW.assignment_id AND a.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.student_id AND m.role='student' AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'submission must belong to the same organisation as its student and assignment'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_feedback_insert
+    BEFORE INSERT ON feedback
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM submissions s WHERE s.id=NEW.submission_id AND s.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.teacher_id AND m.role IN ('teacher','org_admin') AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'feedback must belong to the same organisation as its submission and teacher'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_feedback_update
+    BEFORE UPDATE OF submission_id,teacher_id,organization_id ON feedback
+    WHEN NEW.organization_id IS NOT NULL AND (
+      NOT EXISTS (SELECT 1 FROM submissions s WHERE s.id=NEW.submission_id AND s.organization_id=NEW.organization_id)
+      OR NOT EXISTS (SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.teacher_id AND m.role IN ('teacher','org_admin') AND m.active=1)
+    )
+    BEGIN SELECT RAISE(ABORT,'feedback must belong to the same organisation as its submission and teacher'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignments_insert
+    BEFORE INSERT ON assignments
+    WHEN NEW.organization_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.created_by AND m.role IN ('teacher','org_admin') AND m.active=1
+    )
+    BEGIN SELECT RAISE(ABORT,'assignment creator must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_assignments_update
+    BEFORE UPDATE OF created_by,organization_id ON assignments
+    WHEN NEW.organization_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.organization_id AND m.user_id=NEW.created_by AND m.role IN ('teacher','org_admin') AND m.active=1
+    )
+    BEGIN SELECT RAISE(ABORT,'assignment creator must belong to the same organisation'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_sessions_update
+    BEFORE UPDATE OF active_organization_id,user_id ON sessions
+    WHEN NEW.active_organization_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.active_organization_id AND m.user_id=NEW.user_id AND m.active=1
+    )
+    BEGIN SELECT RAISE(ABORT,'session organisation must match an active membership'); END;
+    CREATE TRIGGER IF NOT EXISTS tenant_sessions_insert
+    BEFORE INSERT ON sessions
+    WHEN NEW.active_organization_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM organization_memberships m WHERE m.organization_id=NEW.active_organization_id AND m.user_id=NEW.user_id AND m.active=1
+    )
+    BEGIN SELECT RAISE(ABORT,'session organisation must match an active membership'); END;
+  `);
+};
+
 /**
  * Adds the organisation and membership foundation to the existing single-school
  * schema. This migration only backfills the tenant key; route enforcement and
@@ -40,7 +139,7 @@ export function migrateTenantFoundation(db: MigrationDatabase, isProduction: boo
   `);
 
   const currentVersion = Number((db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as { version: number }).version);
-  if (currentVersion >= 1) return;
+  if (currentVersion >= 1) { installTenantIntegrityTriggers(db); return; }
 
   const migrate = db.transaction(() => {
     db.exec(`
@@ -126,7 +225,7 @@ export function migrateTenantFoundation(db: MigrationDatabase, isProduction: boo
       CREATE INDEX IF NOT EXISTS idx_sessions_active_organization ON sessions(active_organization_id);
     `);
 
-    db.prepare('INSERT INTO schema_migrations(version,name) VALUES(?,?)').run(1, 'tenant_foundation');
+    installTenantIntegrityTriggers(db);\n    db.prepare('INSERT INTO schema_migrations(version,name) VALUES(?,?)').run(1, 'tenant_foundation');
   });
 
   migrate();
