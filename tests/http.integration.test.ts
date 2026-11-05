@@ -222,7 +222,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(availableOrganizations.status,200);
     const organizationOptions=await availableOrganizations.json() as Array<{id:number;name:string;role:string}>;
     assert.deepEqual(organizationOptions.map(({id,name,role})=>[id,name,role]),[
-      [currentUserData.user.organizationId,'Legacy Learnora','org_admin'],
+      [currentUserData.user.organizationId,'Learnora Demo School','org_admin'],
       [otherOrganizationId,'Other School','org_admin'],
     ],'users may only discover their own active organisation memberships');
 
