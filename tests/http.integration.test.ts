@@ -265,6 +265,24 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/admin/users', { cookie: teacherJansen })).status, 403);
     assert.equal((await request('/api/admin/overview', { cookie: studentNoor })).status, 403);
 
+    const accountAuditDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      accountAuditDb.exec(`CREATE TRIGGER fail_user_created_audit BEFORE INSERT ON audit_logs
+        WHEN NEW.action = 'user.created'
+        BEGIN SELECT RAISE(ABORT, 'forced user audit failure'); END`);
+      const failedAccountCreate = await request('/api/admin/users', {
+        method: 'POST', cookie: admin,
+        body: { email: 'atomic-audit@demo.local', displayName: 'Atomic Audit', role: 'student', password: 'SecurePass123!' },
+      });
+      assert.equal(failedAccountCreate.status, 500, 'an audit failure during account creation must return a server error');
+      const accountsAfterAuditFailure = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{email:string}>;
+      assert.equal(accountsAfterAuditFailure.some((user) => user.email === 'atomic-audit@demo.local'), false,
+        'account creation must roll back if its audit record cannot be written');
+    } finally {
+      accountAuditDb.exec('DROP TRIGGER IF EXISTS fail_user_created_audit');
+      accountAuditDb.close();
+    }
+
     // A teacher cannot create an assignment spanning a class they do not teach.
     assert.equal((await request('/api/assignments', {
       method: 'POST',
