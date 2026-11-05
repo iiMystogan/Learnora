@@ -8,6 +8,8 @@ Gecontroleerd op branch `security/phase-1-backend`. Elke gegevensroute heeft een
 | `POST /api/login` | Publiek | Generieke foutmelding, rate limiting en sessie aanmaken na geldige credentials; de actieve organisatie komt uit een gecontroleerd lidmaatschap. |
 | `GET /api/organizations` | Ingelogde gebruiker | Geeft uitsluitend de eigen actieve lidmaatschappen terug; antwoord is niet cachebaar. |
 | `POST /api/organization/switch` | Ingelogde gebruiker + CSRF-token | Wisselt alleen naar een actieve organisatie waarvan de gebruiker lid is; werkt de bestaande sessiecontext atomair bij en schrijft een auditregel. |
+| `GET /api/organization/settings` | Ingelogde gebruiker | Leest alleen de instellingen van de actieve sessieorganisatie. |
+| `PATCH /api/organization/settings` | Organisatiebeheerder + CSRF-token | Wijzigt alleen de actieve organisatie; beperkt invoer tot organisatienaam en hex-accentkleur en schrijft een auditregel. |
 | `POST /api/logout` | CSRF-token vereist | Trekt de sessie in als die geldig is en wist de cookie; werkt ook om een verlopen of ongeldige cookie op te ruimen. |
 | `GET /api/me` | Ingelogde gebruiker | Geeft uitsluitend de eigen accountidentiteit terug. |
 | `POST /api/account/password` | Ingelogde gebruiker | Wijzigt alleen het eigen wachtwoord na controle van het huidige wachtwoord; trekt sessies in. |
@@ -34,6 +36,6 @@ Gecontroleerd op branch `security/phase-1-backend`. Elke gegevensroute heeft een
 ## Testdekking
 
 - `tests/authorization.test.ts`: regressietests voor inzendingen, opdrachten en docentdashboards.
-- `tests/http.integration.test.ts`: HTTP-controles voor de rollen admin/docent/student, klassen, opdrachten, inzendingen, feedback, downloads, organisatiekeuze en -wisseling, en ongeldige of ongeautoriseerde verzoeken.
+- `tests/http.integration.test.ts`: HTTP-controles voor de rollen admin/docent/student, klassen, opdrachten, inzendingen, feedback, downloads, organisatiekeuze en -wisseling, organisatie-instellingen/branding, en ongeldige of ongeautoriseerde verzoeken.
 
 De autorisatiecontrole behandelt elke API-route in de huidige `server.ts`. De aangrenzende invoervalidatie-, transacties-, bestandsvervangings- en demo-seedingreviews blijven afzonderlijke Phase 1-onderwerpen.
