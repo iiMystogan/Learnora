@@ -171,11 +171,16 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const tenantDb = new Database(path.join(tempDir, 'test.sqlite'));
     let otherOrganizationId:number;
     let otherClassId:number;
+    let otherAssignmentId:number;
     try {
       otherOrganizationId = Number(tenantDb.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
       const adminId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='admin@demo.local'").get() as {id:number}).id);
       tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'org_admin',1)").run(otherOrganizationId,adminId);
       otherClassId = Number(tenantDb.prepare('INSERT INTO classes(name,organization_id) VALUES(?,?)').run('Other School Class',otherOrganizationId).lastInsertRowid);
+      otherAssignmentId = Number(tenantDb.prepare('INSERT INTO assignments(title,created_by,organization_id) VALUES(?,?,?)')
+        .run('Other School Assignment',adminId,otherOrganizationId).lastInsertRowid);
+      tenantDb.prepare('INSERT INTO assignment_classes(assignment_id,class_id,organization_id) VALUES(?,?,?)')
+        .run(otherAssignmentId,otherClassId,otherOrganizationId);
     } finally {
       tenantDb.close();
     }
@@ -187,6 +192,14 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const otherOrgClasses=await request('/api/classes',{cookie:otherOrgCookie});
     assert.deepEqual((await otherOrgClasses.json() as Array<{name:string}>).map((item)=>item.name),['Other School Class'],
       'the class list must follow the active organisation in the session');
+    const otherOrgAssignments=await request('/api/assignments',{cookie:otherOrgCookie});
+    assert.deepEqual((await otherOrgAssignments.json() as Array<{title:string}>).map((item)=>item.title),['Other School Assignment'],
+      'the assignment list must follow the active organisation in the session');
+    assert.equal((await request(`/api/assignments/${otherAssignmentId}`,{method:'DELETE',cookie:admin})).status,404,
+      'an assignment from another organisation must not be deletable by numeric ID');
+    assert.equal((await request('/api/assignments',{method:'POST',cookie:admin,body:{
+      title:'Cross-tenant assignment attempt',classIds:[otherClassId],
+    }})).status,400,'an assignment cannot be linked to another organisation\'s class');
     assert.equal((await request(`/api/classes/${otherClassId}/students`,{cookie:admin})).status,404,
       'a class from another organisation must not be discoverable by its numeric ID');
     const spoofedClass=await request('/api/classes',{method:'POST',cookie:admin,body:{
