@@ -525,7 +525,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       testDb.prepare('DELETE FROM class_teachers WHERE class_id=? AND teacher_id=?').run(mediaClass.id, 3);
       assert.equal((await request(`/api/classes/${mediaClass.id}/students`, { cookie: teacherVisser })).status, 403,
         'a teacher removed from a class must lose access immediately');
-      testDb.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,3)').run(mediaClass.id);
+      testDb.prepare("INSERT INTO class_teachers(class_id,teacher_id,organization_id) VALUES(?,3,(SELECT id FROM organizations WHERE slug='learnora-demo'))").run(mediaClass.id);
 
       testDb.prepare('DELETE FROM class_students WHERE class_id=? AND student_id=?').run(mediaClass.id, 6);
       const removedStudentSubmissionsResponse = await request('/api/submissions', { cookie: studentSara });
@@ -539,7 +539,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       assert.equal((await request(`/api/assignments/${sharedAssignment.id}/submit`, {
         method: 'POST', cookie: studentSara, body: new FormData(),
       })).status, 403, 'a removed student must not submit to the former class assignment');
-      testDb.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,6)').run(mediaClass.id);
+      testDb.prepare("INSERT INTO class_students(class_id,student_id,organization_id) VALUES(?,6,(SELECT id FROM organizations WHERE slug='learnora-demo'))").run(mediaClass.id);
 
       testDb.prepare('DELETE FROM assignment_classes WHERE assignment_id=? AND class_id=?').run(sharedAssignment.id, mediaClass.id);
       const movedStudentAssignments = await (await request('/api/assignments', { cookie: studentSara })).json() as Array<{ id: number }>;
@@ -552,7 +552,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         'a teacher must lose assignment access when the assignment is moved away from their class');
       assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: teacherVisser })).status, 403,
         'a teacher must lose access to the submission when its assignment is moved away from their class');
-      testDb.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)').run(sharedAssignment.id, mediaClass.id);
+      testDb.prepare("INSERT INTO assignment_classes(assignment_id,class_id,organization_id) VALUES(?,?,(SELECT id FROM organizations WHERE slug='learnora-demo'))").run(sharedAssignment.id, mediaClass.id);
 
       // Hold a multipart upload open after authorization passed and the file stream started.
       // Revoke class membership while Multer is still receiving bytes; the post-upload check must reject it.
