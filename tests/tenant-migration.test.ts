@@ -40,7 +40,8 @@ function createLegacySchema(db: InstanceType<typeof Database>): void {
     );
     CREATE TABLE feedback (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      submission_id INTEGER NOT NULL REFERENCES submissions(id)
+      submission_id INTEGER NOT NULL REFERENCES submissions(id),
+      teacher_id INTEGER REFERENCES users(id)
     );
     CREATE TABLE audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
