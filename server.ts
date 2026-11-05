@@ -557,7 +557,12 @@ app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(r
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
   if(!canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
-  db.prepare('DELETE FROM assignments WHERE id=?').run(id); audit(req.user.id,'assignment.deleted','assignment',id); res.json({success:true});
+  const deleteAssignment=db.transaction(()=>{
+    db.prepare('DELETE FROM assignments WHERE id=?').run(id);
+    audit(req.user.id,'assignment.deleted','assignment',id);
+  });
+  deleteAssignment();
+  res.json({success:true});
 });
 
 app.get('/api/assignments/:id/progress',authenticate,requireRole('teacher','admin'),(req:any,res)=>{
@@ -647,10 +652,13 @@ app.post('/api/submissions/:id/feedback',authenticate,requireRole('teacher','adm
   const grade=req.body.grade ?? '';
   if(!comments||comments.length>10000||!isBoundedString(grade,50))
     return res.status(400).json({error:'Feedback is verplicht (maximaal 10.000 tekens) en het cijfer mag maximaal 50 tekens zijn.'});
-  db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
-    ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP`)
-    .run(id,req.user.id,comments,grade);
-  audit(req.user.id,'feedback.saved','submission',id);
+  const saveFeedback=db.transaction(()=>{
+    db.prepare(`INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,updated_at) VALUES(?,?,?,?, 'reviewed',CURRENT_TIMESTAMP)
+      ON CONFLICT(submission_id) DO UPDATE SET teacher_id=excluded.teacher_id,comments=excluded.comments,grade=excluded.grade,status='reviewed',updated_at=CURRENT_TIMESTAMP`)
+      .run(id,req.user.id,comments,grade);
+    audit(req.user.id,'feedback.saved','submission',id);
+  });
+  saveFeedback();
   res.json({success:true});
 });
 app.get('/api/submissions/:id/download',authenticate,(req:any,res)=>{
