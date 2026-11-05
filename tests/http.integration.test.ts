@@ -262,6 +262,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     }})).status,404);
     assert.equal((await request(`/api/submissions/${otherSubmissionId}/download`,{cookie:primaryTeacherCookie})).status,404);
 
+    const otherStudentLogin=await request('/api/login',{method:'POST',body:{
+      email:'student.sara@demo.local',password:'Student123!',organizationId:otherOrganizationId,
+    }});
+    assert.equal(otherStudentLogin.status,200);
     const otherStudentCannotSubmit=await request(`/api/assignments/${primaryAssignmentId}/submit`,{
       method:'POST',cookie:(otherStudentLogin.headers.get('set-cookie')||'').split(';',1)[0],body:new FormData(),
     });
@@ -299,10 +303,6 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/assignments',{method:'POST',cookie:admin,body:{
       title:'Cross-tenant assignment attempt',classIds:[otherClassId],
     }})).status,400,'an assignment cannot be linked to another organisation\'s class');
-    const otherStudentLogin=await request('/api/login',{method:'POST',body:{
-      email:'student.sara@demo.local',password:'Student123!',organizationId:otherOrganizationId,
-    }});
-    assert.equal(otherStudentLogin.status,200);
     const otherStudentCookie=(otherStudentLogin.headers.get('set-cookie')||'').split(';',1)[0];
     const otherStudentDashboard=await request('/api/dashboard',{cookie:otherStudentCookie});
     const otherStudentDashboardData=await otherStudentDashboard.json() as {assignments:Array<{title:string}>;classes:Array<{name:string}>};
