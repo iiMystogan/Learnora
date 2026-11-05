@@ -1,6 +1,6 @@
 # Phase 1 – Part 2: multi-tenancy assessment
 
-Status: **required; tenant schema, server-validated session context, organisation-scoped API routes, and database rejection of missing tenant IDs are implemented on the security branch. Broader cross-tenant coverage and migration/rollback review remain.**
+Status: **Phase 1 – Part 2 implementation complete on the separate security branch. The persistent database has not been migrated; use the documented backup and restore procedure before any deployment.**
 
 ## Why Part 2 is needed
 
@@ -55,7 +55,7 @@ If the migration aborts, its transaction rolls back and the issue can be correct
 4. Add a trusted active-organisation context to authentication and authorization helpers: **complete; session organisation is loaded from the database and checked against an active membership**.
 5. Scope API reads and writes, then uploads/downloads, to that context: **complete across dashboards, classes, assignments, submissions, feedback, downloads, and organisation administration**.
 6. Add cross-tenant integration tests for every endpoint and role, including attempts to alter tenant IDs in request data: **complete for class, dashboard, assignment, submission, feedback, upload/download, and organisation-administration boundaries across students, teachers, and organisation administrators**.
-7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch: **automated rollback test and restore procedure added; all CI checks passed**.
+7. Verify migration, rollback, TypeScript, build, dependency audit, and full regression checks on the separate branch: **complete; rollback atomicity test and backup/restore runbook added, and all CI checks passed**.
 
 ## Deliberately deferred
 
