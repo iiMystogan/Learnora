@@ -169,19 +169,19 @@ if (!isProduction && count('SELECT count(*) AS n FROM users') === 0) {
   const s3 = db.prepare("SELECT id FROM users WHERE email='student.sara@demo.local'").get() as any;
   const c1 = db.prepare("INSERT INTO classes(name,year_group) VALUES('ICT 2A','2026–2027')").run().lastInsertRowid as number;
   const c2 = db.prepare("INSERT INTO classes(name,year_group) VALUES('Media 3B','2026–2027')").run().lastInsertRowid as number;
-  db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(c1,t1.id);
-  db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(c2,t2.id);
-  db.prepare('INSERT INTO class_students VALUES(?,?)').run(c1,s1.id);
-  db.prepare('INSERT INTO class_students VALUES(?,?)').run(c1,s2.id);
-  db.prepare('INSERT INTO class_students VALUES(?,?)').run(c2,s3.id);
+  db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(c1,t1.id);
+  db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(c2,t2.id);
+  db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,?)').run(c1,s1.id);
+  db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,?)').run(c1,s2.id);
+  db.prepare('INSERT INTO class_students(class_id,student_id) VALUES(?,?)').run(c2,s3.id);
   const a1 = db.prepare("INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)")
     .run('Netwerkontwerp','Ontwerp een klein bedrijfsnetwerk.','Lever je netwerkdiagram en een korte toelichting in.','2026-11-14',t1.id).lastInsertRowid as number;
   const a2 = db.prepare("INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)")
     .run('Reflectieverslag','Reflecteer op je projectwerk.','Beschrijf je aanpak, keuzes en leerpunten.','2026-11-20',t1.id).lastInsertRowid as number;
   const a3 = db.prepare("INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)")
     .run('Portfolio media','Verzamel je beste werk in een portfolio.','Upload een PDF of ZIP-bestand.','2026-11-18',t2.id).lastInsertRowid as number;
-  [a1,a2].forEach(a => db.prepare('INSERT INTO assignment_classes VALUES(?,?)').run(a,c1));
-  db.prepare('INSERT INTO assignment_classes VALUES(?,?)').run(a3,c2);
+  [a1,a2].forEach(a => db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)').run(a,c1));
+  db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)').run(a3,c2);
 }
 
 migrateTenantFoundation(db,isProduction);
@@ -482,8 +482,8 @@ app.post('/api/classes',authenticate,requireRole('teacher','admin'),(req:any,res
   }
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO classes(name,year_group) VALUES(?,?)').run(name,yearGroup).lastInsertRowid as number;
-    if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,req.user.id);
-    else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers VALUES(?,?)').run(id,assignedTeacherId);
+    if(req.user.role==='teacher') db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(id,req.user.id);
+    else if(assignedTeacherId) db.prepare('INSERT INTO class_teachers(class_id,teacher_id) VALUES(?,?)').run(id,assignedTeacherId);
     audit(req.user.id,'class.created','class',id,name); return id;
   });
   try { res.json({id:create()}); } catch { res.status(400).json({error:'Aanmaken van de klas is niet gelukt.'}); }
@@ -552,7 +552,7 @@ app.post('/api/assignments',authenticate,requireRole('teacher','admin'),(req:any
   const create=db.transaction(()=>{
     const id=db.prepare('INSERT INTO assignments(title,description,instructions,deadline,created_by) VALUES(?,?,?,?,?)')
       .run(title,description,instructions,deadline||null,req.user.id).lastInsertRowid as number;
-    const add=db.prepare('INSERT INTO assignment_classes VALUES(?,?)'); validClassIds.forEach((classId:number)=>add.run(id,classId));
+    const add=db.prepare('INSERT INTO assignment_classes(assignment_id,class_id) VALUES(?,?)'); validClassIds.forEach((classId:number)=>add.run(id,classId));
     audit(req.user.id,'assignment.created','assignment',id,title); return id;
   });
   res.json({id:create()});
