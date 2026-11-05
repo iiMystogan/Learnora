@@ -172,6 +172,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     let otherOrganizationId:number;
     let otherClassId:number;
     let otherAssignmentId:number;
+    let otherSubmissionId:number;
+    let otherStudentId:number;
     try {
       otherOrganizationId = Number(tenantDb.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
       const adminId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='admin@demo.local'").get() as {id:number}).id);
@@ -181,6 +183,15 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         .run('Other School Assignment',adminId,otherOrganizationId).lastInsertRowid);
       tenantDb.prepare('INSERT INTO assignment_classes(assignment_id,class_id,organization_id) VALUES(?,?,?)')
         .run(otherAssignmentId,otherClassId,otherOrganizationId);
+      otherStudentId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='student.sara@demo.local'").get() as {id:number}).id);
+      tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'student',1)")
+        .run(otherOrganizationId,otherStudentId);
+      tenantDb.prepare('INSERT INTO class_students(class_id,student_id,organization_id) VALUES(?,?,?)')
+        .run(otherClassId,otherStudentId,otherOrganizationId);
+      otherSubmissionId = Number(tenantDb.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size,organization_id)
+        VALUES(?,?,'other.pdf','other-file.pdf',10,?)`).run(otherAssignmentId,otherStudentId,otherOrganizationId).lastInsertRowid);
+      tenantDb.prepare("INSERT INTO feedback(submission_id,teacher_id,comments,grade,status,organization_id) VALUES(?,?,'Other tenant feedback','8','reviewed',?)")
+        .run(otherSubmissionId,adminId,otherOrganizationId);
     } finally {
       tenantDb.close();
     }
@@ -200,6 +211,24 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request('/api/assignments',{method:'POST',cookie:admin,body:{
       title:'Cross-tenant assignment attempt',classIds:[otherClassId],
     }})).status,400,'an assignment cannot be linked to another organisation\'s class');
+    const otherStudentLogin=await request('/api/login',{method:'POST',body:{
+      email:'student.sara@demo.local',password:'Student123!',organizationId:otherOrganizationId,
+    }});
+    assert.equal(otherStudentLogin.status,200);
+    const otherStudentCookie=(otherStudentLogin.headers.get('set-cookie')||'').split(';',1)[0];
+    const otherStudentDashboard=await request('/api/dashboard',{cookie:otherStudentCookie});
+    const otherStudentDashboardData=await otherStudentDashboard.json() as {assignments:Array<{title:string}>;classes:Array<{name:string}>};
+    assert.deepEqual(otherStudentDashboardData.assignments.map((item)=>item.title),['Other School Assignment']);
+    assert.deepEqual(otherStudentDashboardData.classes.map((item)=>item.name),['Other School Class']);
+    const otherStudentSubmissions=await request('/api/submissions',{cookie:otherStudentCookie});
+    assert.deepEqual((await otherStudentSubmissions.json() as Array<{id:number}>).map((item)=>item.id),[otherSubmissionId]);
+    const primaryOrganizationSubmissions=await request('/api/submissions',{cookie:admin});
+    assert.equal((await primaryOrganizationSubmissions.json() as Array<{id:number}>).some((item)=>item.id===otherSubmissionId),false);
+    assert.equal((await request(`/api/submissions/${otherSubmissionId}/feedback`,{method:'POST',cookie:admin,body:{
+      comments:'Cross-tenant feedback',grade:'1',
+    }})).status,404);
+    assert.equal((await request(`/api/admin/users/${otherStudentId}`,{method:'PATCH',cookie:admin,body:{active:false}})).status,404,
+      'an administrator cannot manage a user outside the active organisation');
     assert.equal((await request(`/api/classes/${otherClassId}/students`,{cookie:admin})).status,404,
       'a class from another organisation must not be discoverable by its numeric ID');
     const spoofedClass=await request('/api/classes',{method:'POST',cookie:admin,body:{
