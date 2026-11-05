@@ -9,7 +9,7 @@ Naast de extensie controleert `security/upload-validation.ts` of het aangeleverd
 - DOC: controleert de OLE Compound File-signatuur.
 - DOCX en ZIP: controleren op een geldige bekende ZIP-header.
 
-Een mismatch wordt geweigerd en het tijdelijk opgeslagen bestand wordt verwijderd.
+Een mismatch wordt geweigerd en het tijdelijk opgeslagen bestand wordt verwijderd. Bij een mislukte databasebewerking tijdens vervanging wordt het nieuwe bestand opgeruimd en blijft de bestaande inzending behouden. Bij het verwijderen van een opdracht worden fysieke inzendingsbestanden pas na de geslaagde database- en audittransactie verwijderd.
 
 ## Beperkingen
 
