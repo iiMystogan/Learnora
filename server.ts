@@ -153,7 +153,7 @@ const count = (sql: string) => (db.prepare(sql).get() as any).n as number;
 const insertUser = db.prepare('INSERT OR IGNORE INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)');
 const seedUser = (email: string, name: string, password: string, role: string) =>
   insertUser.run(email, name, bcrypt.hashSync(password, 10), role);
-if (count('SELECT count(*) AS n FROM users') === 0) {
+if (!isProduction && count('SELECT count(*) AS n FROM users') === 0) {
   seedUser('admin@demo.local', 'Platformbeheerder', 'Admin123!', 'admin');
   seedUser('docent.jansen@demo.local', 'Sanne Jansen', 'Teacher123!', 'teacher');
   seedUser('docent.visser@demo.local', 'Mark Visser', 'Teacher123!', 'teacher');
