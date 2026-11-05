@@ -129,6 +129,49 @@ test('tenant foundation migration preserves and maps existing school data idempo
   }
 });
 
+test('tenant migration rolls back every schema change after a precondition failure', () => {
+  const db = new Database(':memory:');
+  try {
+    createLegacySchema(db);
+    db.exec(`
+      CREATE TABLE organizations (
+        id INTEGER PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        settings_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO organizations(slug,display_name) VALUES('school-a','School A');
+      INSERT INTO organizations(slug,display_name) VALUES('school-b','School B');
+    `);
+    db.prepare('INSERT INTO users(email,role) VALUES(?,?)').run('teacher@school.example','teacher');
+    db.prepare('INSERT INTO classes(name) VALUES(?)').run('Preserved class');
+
+    assert.throws(
+      () => migrateTenantFoundation(db,false),
+      /requires explicit mapping/,
+      'ambiguous existing organisations must stop the migration',
+    );
+
+    const hasColumn = (table:string,column:string) =>
+      (db.pragma(`table_info(${table})`) as Array<{name:string}>).some((item)=>item.name===column);
+    assert.equal(hasColumn('users','is_platform_admin'),false,'user columns must roll back');
+    assert.equal(hasColumn('classes','organization_id'),false,'tenant columns must roll back');
+    assert.equal(hasColumn('assignments','organization_id'),false,'all table alterations must roll back');
+    assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='organization_memberships'").get(),undefined,
+      'new membership tables must roll back');
+    assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get() as {count:number}).count),0,
+      'the failed migration must not be marked as applied');
+    assert.equal((db.prepare('SELECT name FROM classes').get() as {name:string}).name,'Preserved class',
+      'pre-existing data must remain intact');
+    assert.equal(Number((db.prepare('SELECT COUNT(*) AS count FROM organizations').get() as {count:number}).count),2,
+      'pre-existing organisations must remain intact');
+  } finally {
+    db.close();
+  }
+});
+
 test('empty production database does not get a demo organisation', () => {
   const db = new Database(':memory:');
   try {
