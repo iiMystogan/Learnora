@@ -433,7 +433,7 @@ app.post('/api/login',(req:any,res:any) => {
   createSession();
   const token = jwt.sign({id:user.id,jti},JWT_SECRET,{expiresIn:'8h'});
   res.cookie('session',token,{httpOnly:true,secure:isProduction,sameSite:'lax',maxAge:8*60*60*1000,path:'/'});
-  res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,organizationId:activeMembership?.organization_id ?? null,organizationRole:activeMembership?.role ?? null}});
+  res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,organizationId:activeMembership?.organization_id ?? null,organizationName:activeMembership?.displayName ?? null,organizationRole:activeMembership?.role ?? null}});
 });
 app.post('/api/logout',(req,res)=>{
   const token = req.cookies.session;
