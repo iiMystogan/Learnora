@@ -384,6 +384,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       title:'Cross-tenant assignment attempt',classIds:[otherClassId],
     }})).status,400,'an assignment cannot be linked to another organisation\'s class');
     const otherStudentCookie=(otherStudentLogin.headers.get('set-cookie')||'').split(';',1)[0];
+    const studentBrandingUpdate=await request('/api/organization/settings',{method:'PATCH',cookie:otherStudentCookie,body:{
+      brandName:'Student override',primaryColor:'#ff0000',
+    }});
+    assert.equal(studentBrandingUpdate.status,403,'students may read but cannot change organization branding');
     const otherStudentDashboard=await request('/api/dashboard',{cookie:otherStudentCookie});
     const otherStudentDashboardData=await otherStudentDashboard.json() as {assignments:Array<{title:string}>;classes:Array<{name:string}>};
     assert.deepEqual(otherStudentDashboardData.assignments.map((item)=>item.title),['Other School Assignment']);
