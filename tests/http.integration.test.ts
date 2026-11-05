@@ -317,6 +317,27 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(upload.status, 200, 'submission upload returned HTTP ' + upload.status);
     const submission = await upload.json() as { id: number };
 
+    // If replacement persistence fails, remove the new upload and preserve the old submission file.
+    const replacementDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      replacementDb.exec(`CREATE TRIGGER fail_submission_update BEFORE UPDATE ON submissions
+        BEGIN SELECT RAISE(ABORT, 'forced submission update failure'); END`);
+      const filesBeforeFailedReplacement = new Set(await readdir(path.join(tempDir, 'uploads')));
+      const replacementForm = new FormData();
+      replacementForm.append('file', new Blob(['%PDF-1.4\\nreplacement that must not be saved\\n'], { type: 'application/pdf' }), 'replacement.pdf');
+      const failedReplacement = await request(`/api/assignments/${sharedAssignment.id}/submit`, {
+        method: 'POST', cookie: studentSara, body: replacementForm,
+      });
+      assert.equal(failedReplacement.status, 500, 'a database failure during replacement must return a server error');
+      assert.deepEqual(new Set(await readdir(path.join(tempDir, 'uploads'))), filesBeforeFailedReplacement,
+        'a failed replacement must clean up the new file and keep the old file');
+      assert.equal((await request(`/api/submissions/${submission.id}/download`, { cookie: admin })).status, 200,
+        'the previous submission must remain downloadable after replacement failure');
+    } finally {
+      replacementDb.exec('DROP TRIGGER IF EXISTS fail_submission_update');
+      replacementDb.close();
+    }
+
     // Jansen teaches ICT 2A, not Sara's Media 3B class: no list, feedback or download access.
     const saraSubmissions = await (await request('/api/submissions', { cookie: studentSara })).json() as Array<{ id: number }>;
     assert.equal(saraSubmissions.some((item) => item.id === submission.id), true);
