@@ -647,6 +647,27 @@ app.get('/api/assignments/:id/progress',authenticate,requireOrganization,require
   res.json(rows);
 });
 
+app.get('/api/submissions',authenticate,requireOrganization,(req:any,res)=>{
+  const base=`SELECT DISTINCT s.id,s.assignment_id,s.student_id,s.original_filename,s.file_size,s.submitted_at,
+    a.title assignment_title,u.display_name student_name,u.email student_email,c.name class_name,
+    f.comments,f.grade,f.status review_status
+    FROM submissions s
+    JOIN assignments a ON a.id=s.assignment_id AND a.organization_id=? AND s.organization_id=?
+    JOIN users u ON u.id=s.student_id
+    JOIN assignment_classes ac ON ac.assignment_id=a.id AND ac.organization_id=?
+    JOIN class_students cs ON cs.class_id=ac.class_id AND cs.student_id=s.student_id AND cs.organization_id=?
+    JOIN classes c ON c.id=ac.class_id AND c.organization_id=?
+    LEFT JOIN feedback f ON f.submission_id=s.id AND f.organization_id=?`;
+  const sql=req.user.role==='admin'?base+` WHERE s.organization_id=? ORDER BY s.submitted_at DESC`:
+    req.user.role==='teacher'?base+` JOIN class_teachers ct ON ct.class_id=c.id AND ct.organization_id=? WHERE s.organization_id=? AND ct.teacher_id=? ORDER BY s.submitted_at DESC`:
+    base+` WHERE s.organization_id=? AND s.student_id=? ORDER BY s.submitted_at DESC`;
+  const shared=[req.organizationId,req.organizationId,req.organizationId,req.organizationId,req.organizationId,req.organizationId];
+  const params=req.user.role==='admin'?[...shared,req.organizationId]:
+    req.user.role==='teacher'?[...shared,req.organizationId,req.organizationId,req.user.id]:
+    [...shared,req.organizationId,req.user.id];
+  res.json(db.prepare(sql).all(...params));
+});
+
 const defaultUploadDir=isProduction
   ? path.join(process.cwd(),'uploads','submissions')
   : path.join(path.dirname(path.resolve(process.cwd())),`${path.basename(path.resolve(process.cwd()))}-private-uploads`);
