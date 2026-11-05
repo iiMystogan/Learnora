@@ -167,6 +167,41 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal(typeof currentUserData.user.organizationId, 'number',
       'the active organisation must come from the server-validated session');
     assert.equal(currentUserData.user.organizationRole, 'org_admin');
+
+    const tenantDb = new Database(path.join(tempDir, 'test.sqlite'));
+    let otherOrganizationId:number;
+    let otherClassId:number;
+    try {
+      otherOrganizationId = Number(tenantDb.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
+      const adminId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='admin@demo.local'").get() as {id:number}).id);
+      tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'org_admin',1)").run(otherOrganizationId,adminId);
+      otherClassId = Number(tenantDb.prepare('INSERT INTO classes(name,organization_id) VALUES(?,?)').run('Other School Class',otherOrganizationId).lastInsertRowid);
+    } finally {
+      tenantDb.close();
+    }
+    const otherOrgLogin = await request('/api/login',{method:'POST',body:{
+      email:'admin@demo.local',password:'Admin123!',organizationId:otherOrganizationId,
+    }});
+    assert.equal(otherOrgLogin.status,200);
+    const otherOrgCookie=(otherOrgLogin.headers.get('set-cookie')||'').split(';',1)[0];
+    const otherOrgClasses=await request('/api/classes',{cookie:otherOrgCookie});
+    assert.deepEqual((await otherOrgClasses.json() as Array<{name:string}>).map((item)=>item.name),['Other School Class'],
+      'the class list must follow the active organisation in the session');
+    assert.equal((await request(`/api/classes/${otherClassId}/students`,{cookie:admin})).status,404,
+      'a class from another organisation must not be discoverable by its numeric ID');
+    const spoofedClass=await request('/api/classes',{method:'POST',cookie:admin,body:{
+      name:'Tenant Spoof Attempt',yearGroup:'2026',organizationId:otherOrganizationId,
+    }});
+    assert.equal(spoofedClass.status,200);
+    const spoofedClassId=(await spoofedClass.json() as {id:number}).id;
+    const verifyTenantDb=new Database(path.join(tempDir,'test.sqlite'));
+    try {
+      assert.equal((verifyTenantDb.prepare('SELECT organization_id FROM classes WHERE id=?').get(spoofedClassId) as {organization_id:number}).organization_id,
+        currentUserData.user.organizationId,'request organization IDs must not override the session organisation');
+    } finally {
+      verifyTenantDb.close();
+    }
+
     assert.equal((await request('/api/logout', { method: 'POST', cookie: admin, csrf: false })).status, 403,
       'logout must reject requests without a CSRF token');
     assert.equal((await request('/api/me', { cookie: admin })).status, 200,
