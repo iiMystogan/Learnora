@@ -503,14 +503,18 @@ app.post('/api/classes/:id/students',authenticate,requireRole('teacher','admin')
   let student=db.prepare("SELECT * FROM users WHERE email=?").get(email) as any;
   if(student&&student.role!=='student') return res.status(400).json({error:'Dit account is geen studentaccount.'});
   if(student&&!student.active) return res.status(400).json({error:'Dit studentaccount is niet actief.'});
-  if(!student){
-    const passwordError=validatePassword(req.body.password);
-    if(passwordError) return res.status(400).json({error:passwordError});
-    const result=db.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')").run(email,name,bcrypt.hashSync(req.body.password,10));
-    student={id:result.lastInsertRowid};
-  }
-  db.prepare('INSERT OR IGNORE INTO class_students(class_id,student_id) VALUES(?,?)').run(classId,student.id);
-  audit(req.user.id,'student.enrolled','class',classId,email);
+  const passwordError=!student?validatePassword(req.body.password):null;
+  if(passwordError) return res.status(400).json({error:passwordError});
+  const enrollStudent=db.transaction(()=>{
+    if(!student){
+      const result=db.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')")
+        .run(email,name,bcrypt.hashSync(req.body.password,10));
+      student={id:result.lastInsertRowid};
+    }
+    db.prepare('INSERT OR IGNORE INTO class_students(class_id,student_id) VALUES(?,?)').run(classId,student.id);
+    audit(req.user.id,'student.enrolled','class',classId,email);
+  });
+  enrollStudent();
   res.json({success:true,student:{id:student.id,email,displayName:name}});
 });
 
