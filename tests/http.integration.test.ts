@@ -376,6 +376,44 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/uploads/submissions/${uploadedNames[0]}`)).status, 404,
       'uploaded files must not be directly served from a public URL');
 
+    const fileDeletionAssignmentResponse = await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'File deletion transaction test', classIds: [ictClass.id] },
+    });
+    assert.equal(fileDeletionAssignmentResponse.status, 200);
+    const fileDeletionAssignment = await fileDeletionAssignmentResponse.json() as {id:number};
+    const filesBeforeDeleteUpload = new Set(await readdir(path.join(tempDir, 'uploads')));
+    const deleteUploadForm = new FormData();
+    deleteUploadForm.append('file', new Blob(['%PDF-1.4\\nassignment deletion test\\n'], {type:'application/pdf'}), 'delete-me.pdf');
+    const deleteUploadResponse = await request(`/api/assignments/${fileDeletionAssignment.id}/submit`, {
+      method: 'POST', cookie: studentNoor, body: deleteUploadForm,
+    });
+    assert.equal(deleteUploadResponse.status, 200);
+    const deleteSubmission = await deleteUploadResponse.json() as {id:number};
+    const uploadedForDeletion = (await readdir(path.join(tempDir, 'uploads'))).find((name) => !filesBeforeDeleteUpload.has(name));
+    assert.ok(uploadedForDeletion, 'test submission file should exist before assignment deletion');
+    const fileDeleteAuditDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      fileDeleteAuditDb.exec(`CREATE TRIGGER fail_file_delete_audit BEFORE INSERT ON audit_logs
+        WHEN NEW.action = 'assignment.deleted'
+        BEGIN SELECT RAISE(ABORT, 'forced assignment deletion audit failure'); END`);
+      assert.equal((await request(`/api/assignments/${fileDeletionAssignment.id}`, {
+        method: 'DELETE', cookie: admin,
+      })).status, 500);
+      assert.ok((await readdir(path.join(tempDir, 'uploads'))).includes(uploadedForDeletion),
+        'failed database deletion must preserve the physical submission file');
+      assert.equal((await request(`/api/submissions/${deleteSubmission.id}/download`, {cookie:admin})).status, 200,
+        'the submission must remain downloadable after failed deletion');
+    } finally {
+      fileDeleteAuditDb.exec('DROP TRIGGER IF EXISTS fail_file_delete_audit');
+      fileDeleteAuditDb.close();
+    }
+    assert.equal((await request(`/api/assignments/${fileDeletionAssignment.id}`, {
+      method: 'DELETE', cookie: admin,
+    })).status, 200);
+    assert.equal((await readdir(path.join(tempDir, 'uploads'))).includes(uploadedForDeletion), false,
+      'successful assignment deletion must remove its physical submission file');
+
     // If replacement persistence fails, remove the new upload and preserve the old submission file.
     const replacementDb = new Database(path.join(tempDir, 'test.sqlite'));
     try {
