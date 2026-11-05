@@ -245,13 +245,23 @@ const authenticate = (req: any, res: any, next: any) => {
     if (!Number.isSafeInteger(payload.id) || typeof payload.jti !== 'string' || !payload.jti) {
       return res.status(401).json({ error: 'Ongeldige sessie. Log opnieuw in.' });
     }
-    const session = db.prepare(`SELECT 1 FROM sessions
+    const session = db.prepare(`SELECT active_organization_id FROM sessions
       WHERE jti=? AND user_id=? AND revoked_at IS NULL AND expires_at>?`)
-      .get(payload.jti, payload.id, Math.floor(Date.now() / 1000));
+      .get(payload.jti, payload.id, Math.floor(Date.now() / 1000)) as {active_organization_id:number|null}|undefined;
     if (!session) return res.status(401).json({ error: 'Sessie is beëindigd. Log opnieuw in.' });
     const user = db.prepare('SELECT id,email,display_name as displayName,role,active FROM users WHERE id=?').get(payload.id) as any;
     if (!user || !user.active) return res.status(401).json({ error: 'Account is niet actief.' });
+    let organization: {id:number;role:string;displayName:string}|null = null;
+    if (session.active_organization_id !== null) {
+      organization = db.prepare(`SELECT o.id,m.role,o.display_name AS displayName
+        FROM organization_memberships m JOIN organizations o ON o.id=m.organization_id
+        WHERE m.organization_id=? AND m.user_id=? AND m.active=1 AND o.status='active'`)
+        .get(session.active_organization_id,user.id) as typeof organization;
+      if (!organization) return res.status(401).json({ error: 'Organisatiecontext van de sessie is niet meer geldig.' });
+    }
     req.user = user;
+    req.organization = organization;
+    req.organizationId = organization?.id ?? null;
     next();
   } catch { return res.status(401).json({ error: 'Sessie verlopen. Log opnieuw in.' }); }
 };
@@ -363,6 +373,20 @@ app.post('/api/login',(req:any,res:any) => {
     res.setHeader('Cache-Control','no-store');
     return res.status(401).json({error:'E-mailadres of wachtwoord klopt niet.'});
   }
+  const memberships = db.prepare(`SELECT m.organization_id,m.role,o.display_name AS displayName
+    FROM organization_memberships m JOIN organizations o ON o.id=m.organization_id
+    WHERE m.user_id=? AND m.active=1 AND o.status='active'
+    ORDER BY m.organization_id`).all(user.id) as Array<{organization_id:number;role:string;displayName:string}>;
+  const requestedOrganizationId = req.body.organizationId === undefined ? null : parsePositiveId(req.body.organizationId);
+  if (req.body.organizationId !== undefined && requestedOrganizationId === null) {
+    return res.status(400).json({error:'Ongeldige organisatie.'});
+  }
+  const activeMembership = requestedOrganizationId === null
+    ? memberships[0] ?? null
+    : memberships.find((membership)=>membership.organization_id===requestedOrganizationId) ?? null;
+  if (requestedOrganizationId !== null && !activeMembership) {
+    return res.status(403).json({error:'Je hebt geen actief lidmaatschap bij deze organisatie.'});
+  }
   db.prepare('DELETE FROM login_rate_limits WHERE bucket_key=?').run(identityKey);
   res.setHeader('Cache-Control','no-store');
   db.prepare('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?').run(user.id);
@@ -370,13 +394,13 @@ app.post('/api/login',(req:any,res:any) => {
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
   db.prepare('DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL').run(Math.floor(Date.now() / 1000));
   const createSession = db.transaction(() => {
-    db.prepare('INSERT INTO sessions(jti,user_id,expires_at) VALUES(?,?,?)').run(jti,user.id,expiresAt);
+    db.prepare('INSERT INTO sessions(jti,user_id,expires_at,active_organization_id) VALUES(?,?,?,?)')\n      .run(jti,user.id,expiresAt,activeMembership?.organization_id ?? null);
     audit(user.id,'auth.login','session',null);
   });
   createSession();
   const token = jwt.sign({id:user.id,jti},JWT_SECRET,{expiresIn:'8h'});
   res.cookie('session',token,{httpOnly:true,secure:isProduction,sameSite:'lax',maxAge:8*60*60*1000,path:'/'});
-  res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role}});
+  res.json({user:{id:user.id,email:user.email,displayName:user.display_name,role:user.role,organizationId:activeMembership?.organization_id ?? null,organizationRole:activeMembership?.role ?? null}});
 });
 app.post('/api/logout',(req,res)=>{
   const token = req.cookies.session;
@@ -395,7 +419,7 @@ app.post('/api/logout',(req,res)=>{
   res.clearCookie('session',{path:'/'});
   res.json({success:true});
 });
-app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.displayName,role:req.user.role}}));
+app.get('/api/me',authenticate,(req:any,res)=>res.json({user:{id:req.user.id,email:req.user.email,displayName:req.user.displayName,role:req.user.role,organizationId:req.organizationId,organizationRole:req.organization?.role ?? null}}));
 
 app.post('/api/account/password',authenticate,(req:any,res)=>{
   const currentPassword=req.body.currentPassword;
