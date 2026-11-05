@@ -450,6 +450,10 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const visserSubmissions = await (await request('/api/submissions', { cookie: teacherVisser })).json() as Array<{ id: number }>;
     assert.equal(visserSubmissions.some((item) => item.id === submission.id), true);
     assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
+      method: 'POST', cookie: teacherVisser,
+      body: { comments: 'x'.repeat(10001), grade: '8' },
+    })).status, 400, 'feedback length must be bounded');
+    assert.equal((await request(`/api/submissions/${submission.id}/feedback`, {
       method: 'POST',
       cookie: teacherVisser,
       body: { comments: 'Authorized feedback', grade: '8' },
@@ -621,6 +625,17 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     const auditResponse = await request('/api/admin/audit', { cookie: admin });
     assert.equal(auditResponse.status, 200);
     const auditRows = await auditResponse.json() as Array<{action:string;details:string}>;
+    assert.equal((await request('/api/admin/users', {
+      method: 'POST', cookie: admin,
+      body: { email: 'not-an-email', displayName: 'Invalid Email', role: 'student', password: 'SecurePass123!' },
+    })).status, 400, 'admin account creation must reject malformed email addresses');
+    assert.equal((await request('/api/classes', {
+      method: 'POST', cookie: admin, body: { name: 'X'.repeat(121) },
+    })).status, 400, 'class names must be bounded');
+    assert.equal((await request('/api/assignments', {
+      method: 'POST', cookie: admin,
+      body: { title: 'Invalid date', classIds: [ictClass.id], deadline: '2026-02-30' },
+    })).status, 400, 'assignment deadlines must be real calendar dates');
     assert.ok(auditRows.some((row) => row.action === 'auth.login'), 'successful logins must be audited');
     assert.ok(auditRows.some((row) => row.action === 'auth.logout'), 'successful logouts must be audited');
     assert.ok(auditRows.every((row) => !/Admin123!|Teacher123!|Student123!|InitialPass123!|ChangedPass123!|SelfServiceStart123!|SelfServiceChanged123!|http-integration-test-secret|198\\.51\\.100/.test(row.details)),
