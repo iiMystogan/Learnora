@@ -416,6 +416,9 @@ app.post('/api/login',(req:any,res:any) => {
   if (requestedOrganizationId !== null && !activeMembership) {
     return res.status(403).json({error:'Je hebt geen actief lidmaatschap bij deze organisatie.'});
   }
+  if (!activeMembership && !user.is_platform_admin) {
+    return res.status(403).json({error:'Je account heeft geen actieve schoolorganisatie.'});
+  }
   db.prepare('DELETE FROM login_rate_limits WHERE bucket_key=?').run(identityKey);
   res.setHeader('Cache-Control','no-store');
   db.prepare('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?').run(user.id);
