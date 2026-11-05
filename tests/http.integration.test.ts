@@ -236,6 +236,20 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.ok(otherAdminUserRows.some((item)=>item.id===otherOrgOnlyUserId));
     assert.equal(otherAdminUserRows.some((item)=>item.email==='docent.jansen@demo.local'),false,
       'admin user listings must be limited to current-organisation memberships');
+    const otherOverviewResponse=await request('/api/admin/overview',{cookie:otherOrgCookie});
+    assert.equal(otherOverviewResponse.status,200);
+    const otherOverview=await otherOverviewResponse.json() as {
+      users:Array<{role:string;count:number}>;
+      classes:{count:number};
+      assignments:{count:number};
+      submissions:{count:number};
+    };
+    assert.equal(otherOverview.classes.count,1);
+    assert.equal(otherOverview.assignments.count,1);
+    assert.equal(otherOverview.submissions.count,1);
+    assert.equal(otherOverview.users.reduce((sum,item)=>sum+item.count,0),4,
+      'admin overview counts must include only this organisation');
+    assert.equal((await request(`/api/classes/${otherClassId}/students`,{cookie:otherOrgCookie})).status,200);
     const primaryAdminUsers=await request('/api/admin/users',{cookie:admin});
     assert.equal((await primaryAdminUsers.json() as Array<{id:number}>).some((item)=>item.id===otherOrgOnlyUserId),false);
     const otherAudit=await request('/api/admin/audit',{cookie:otherOrgCookie});
