@@ -511,7 +511,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         method: 'POST', cookie: teacherVisser, body: { comments: 'Must roll back', grade: '8' },
       })).status, 500, 'an audit failure while saving feedback must fail the operation');
       const submissionsAfterFailedFeedback = await (await request('/api/submissions', { cookie: teacherVisser })).json() as Array<{id:number;comments?:string}>;
-      assert.equal(submissionsAfterFailedFeedback.find((item) => item.id === submission.id)?.comments, undefined,
+      assert.equal(submissionsAfterFailedFeedback.find((item) => item.id === submission.id)?.comments, null,
         'feedback must roll back if its audit record cannot be written');
     } finally {
       feedbackAuditDb.exec('DROP TRIGGER IF EXISTS fail_feedback_audit');
