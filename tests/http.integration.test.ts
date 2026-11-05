@@ -244,6 +244,22 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/api/classes/${mediaClass.id}/students`, { cookie: teacherJansen })).status, 403);
 
     assert.equal((await request(`/api/classes/${ictClass.id}/students`, { cookie: admin })).status, 200);
+    const enrollmentDb = new Database(path.join(tempDir, 'test.sqlite'));
+    try {
+      enrollmentDb.exec(`CREATE TRIGGER fail_class_enrollment BEFORE INSERT ON class_students
+        BEGIN SELECT RAISE(ABORT, 'forced enrollment failure'); END`);
+      const failedEnrollment = await request(`/api/classes/${ictClass.id}/students`, {
+        method: 'POST', cookie: admin,
+        body: { email: 'atomic-enrollment@demo.local', displayName: 'Atomic Enrollment', password: 'SecurePass123!' },
+      });
+      assert.equal(failedEnrollment.status, 500, 'a failed class enrollment must return a server error');
+      const accountsAfterFailure = await (await request('/api/admin/users', { cookie: admin })).json() as Array<{email:string}>;
+      assert.equal(accountsAfterFailure.some((user) => user.email === 'atomic-enrollment@demo.local'), false,
+        'failed enrollment must roll back the newly created student account');
+    } finally {
+      enrollmentDb.exec('DROP TRIGGER IF EXISTS fail_class_enrollment');
+      enrollmentDb.close();
+    }
     const noorClasses = await (await request('/api/classes', { cookie: studentNoor })).json() as Array<{ name: string }>;
     assert.deepEqual(noorClasses.map((item) => item.name), ['ICT 2A']);
     assert.equal((await request('/api/admin/users', { cookie: teacherJansen })).status, 403);
