@@ -1,0 +1,33 @@
+name: Backend security checks
+
+on:
+  push:
+    branches:
+      - security/phase-1-backend
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Audit dependency vulnerabilities
+        run: |
+          npm audit --json > /tmp/npm-audit.json || true
+          node -e 'const a=require("/tmp/npm-audit.json"); console.log("Vulnerability totals:", JSON.stringify(a.metadata?.vulnerabilities ?? {})); for (const [name,v] of Object.entries(a.vulnerabilities ?? {})) { console.log(JSON.stringify({name,severity:v.severity,isDirect:v.isDirect,range:v.range,via:v.via,fixAvailable:v.fixAvailable,paths:v.nodes})); }'
+      - name: Run authorization regression tests
+        run: npm test
+      - name: Run TypeScript checks
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
