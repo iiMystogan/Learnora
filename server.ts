@@ -805,28 +805,37 @@ app.get('/api/submissions/:id/download',authenticate,requireOrganization,(req:an
   });
 });
 
-app.get('/api/admin/overview',authenticate,requireRole('admin'),(_req,res)=>{
+app.get('/api/admin/overview',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
+  const organizationId=req.organizationId;
   res.json({
-    users:db.prepare('SELECT role,COUNT(*) count FROM users GROUP BY role').all(),
-    classes:db.prepare('SELECT COUNT(*) count FROM classes').get(),
-    assignments:db.prepare('SELECT COUNT(*) count FROM assignments').get(),
-    submissions:db.prepare('SELECT COUNT(*) count FROM submissions').get(),
-    recent:db.prepare(`SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id ORDER BY l.created_at DESC LIMIT 20`).all()
+    users:db.prepare('SELECT role,COUNT(*) count FROM organization_memberships WHERE organization_id=? AND active=1 GROUP BY role').all(organizationId),
+    classes:db.prepare('SELECT COUNT(*) count FROM classes WHERE organization_id=?').get(organizationId),
+    assignments:db.prepare('SELECT COUNT(*) count FROM assignments WHERE organization_id=?').get(organizationId),
+    submissions:db.prepare('SELECT COUNT(*) count FROM submissions WHERE organization_id=?').get(organizationId),
+    recent:db.prepare(`SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id
+      WHERE l.organization_id=? ORDER BY l.created_at DESC LIMIT 20`).all(organizationId)
   });
 });
-app.get('/api/admin/users',authenticate,requireRole('admin'),(_req,res)=>{
-  res.json(db.prepare('SELECT id,email,display_name displayName,role,active,last_login lastLogin,created_at createdAt FROM users ORDER BY role,display_name').all());
+app.get('/api/admin/users',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
+  res.json(db.prepare(`SELECT u.id,u.email,u.display_name displayName,
+    CASE m.role WHEN 'org_admin' THEN 'admin' ELSE m.role END role,
+    u.active,m.active membershipActive,u.last_login lastLogin,u.created_at createdAt
+    FROM organization_memberships m JOIN users u ON u.id=m.user_id
+    WHERE m.organization_id=? ORDER BY m.role,u.display_name`).all(req.organizationId));
 });
-app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)=>{
+app.patch('/api/admin/users/:id',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig gebruikers-ID.'});
-  const target=db.prepare('SELECT id,email,display_name,role,active FROM users WHERE id=?').get(id) as any;
-  if(!target) return res.status(404).json({error:'Gebruiker niet gevonden.'});
+  const target=db.prepare(`SELECT u.id,u.email,u.display_name,u.active,m.role membership_role
+    FROM organization_memberships m JOIN users u ON u.id=m.user_id
+    WHERE u.id=? AND m.organization_id=?`).get(id,req.organizationId) as any;
+  if(!target) return res.status(404).json({error:'Gebruiker niet gevonden in deze organisatie.'});
 
   const updates:{role?:string;active?:number;password_hash?:string}={};
   if(Object.prototype.hasOwnProperty.call(req.body,'role')){
     if(!['admin','teacher','student'].includes(req.body.role)) return res.status(400).json({error:'Ongeldige gebruikersrol.'});
-    if(req.body.role!==target.role) updates.role=req.body.role;
+    const currentRole=target.membership_role==='org_admin'?'admin':target.membership_role;
+    if(req.body.role!==currentRole) updates.role=req.body.role;
   }
   if(Object.prototype.hasOwnProperty.call(req.body,'active')){
     if(typeof req.body.active!=='boolean') return res.status(400).json({error:'De accountstatus moet actief of inactief zijn.'});
@@ -843,17 +852,21 @@ app.patch('/api/admin/users/:id',authenticate,requireRole('admin'),(req:any,res)
     return res.status(400).json({error:'Je kunt je eigen beheerdersaccount niet deactiveren of van beheerdersrol veranderen.'});
 
   const updateUser=db.transaction(()=>{
-    const fields=Object.keys(updates);
-    const assignments=fields.map(field=>field+'=?').join(',');
-    db.prepare(`UPDATE users SET ${assignments} WHERE id=?`).run(...fields.map(field=>(updates as any)[field]),id);
+    if(updates.role!==undefined){
+      const membershipRole=updates.role==='admin'?'org_admin':updates.role;
+      db.prepare('UPDATE organization_memberships SET role=? WHERE user_id=? AND organization_id=?')
+        .run(membershipRole,id,req.organizationId);
+    }
+    if(updates.active!==undefined) db.prepare('UPDATE users SET active=? WHERE id=?').run(updates.active,id);
+    if(updates.password_hash!==undefined) db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(updates.password_hash,id);
     db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(id);
-    audit(req.user.id,'user.security_updated','user',id,changed.join(','));
+    audit(req.user.id,'user.security_updated','user',id,changed.join(','),req.organizationId);
   });
   updateUser();
   if(id===req.user.id) res.clearCookie('session',{path:'/'});
   res.json({success:true,sessionsRevoked:true,reauthenticate:id===req.user.id});
 });
-app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
+app.post('/api/admin/users',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
   const email=typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const name=typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
   const role=typeof req.body.role === 'string' ? req.body.role : '';
@@ -863,8 +876,11 @@ app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
   try{
     const createUser=db.transaction(()=>{
       const id=db.prepare('INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,?)')
-        .run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid;
-      audit(req.user.id,'user.created','user',Number(id),email);
+        .run(email,name,bcrypt.hashSync(req.body.password,10),role).lastInsertRowid as number;
+      const membershipRole=role==='admin'?'org_admin':role;
+      db.prepare('INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,?,1)')
+        .run(req.organizationId,id,membershipRole);
+      audit(req.user.id,'user.created','user',id,email,req.organizationId);
       return id;
     });
     const id=createUser();
@@ -875,8 +891,9 @@ app.post('/api/admin/users',authenticate,requireRole('admin'),(req:any,res)=>{
     throw error;
   }
 });
-app.get('/api/admin/audit',authenticate,requireRole('admin'),(_req,res)=>{
-  res.json(db.prepare('SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id ORDER BY l.created_at DESC LIMIT 100').all());
+app.get('/api/admin/audit',authenticate,requireOrganization,requireRole('admin'),(req:any,res)=>{
+  res.json(db.prepare(`SELECT l.*,u.display_name actor_name FROM audit_logs l LEFT JOIN users u ON u.id=l.actor_id
+    WHERE l.organization_id=? ORDER BY l.created_at DESC LIMIT 100`).all(req.organizationId));
 });
 
 app.use('/api',(req,res)=>res.status(404).json({error:'API-endpoint niet gevonden.'}));
