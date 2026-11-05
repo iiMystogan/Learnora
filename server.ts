@@ -617,7 +617,7 @@ app.delete('/api/assignments/:id',authenticate,requireOrganization,requireRole('
   if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
   const assignmentInOrganization = !!db.prepare('SELECT 1 FROM assignments WHERE id=? AND organization_id=?').get(id,req.organizationId);
   if(!assignmentInOrganization || !canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
-  const storedFiles=db.prepare('SELECT stored_filename FROM submissions WHERE assignment_id=?').all(id as Array<{stored_filename:string}>;
+  const storedFiles=db.prepare('SELECT stored_filename FROM submissions WHERE assignment_id=?').all(id) as Array<{stored_filename:string}>;
   const deleteAssignment=db.transaction(()=>{
     db.prepare('DELETE FROM assignments WHERE id=? AND organization_id=?').run(id,req.organizationId);
     audit(req.user.id,'assignment.deleted','assignment',id,'',req.organizationId);
