@@ -174,6 +174,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     let otherAssignmentId:number;
     let otherSubmissionId:number;
     let otherStudentId:number;
+    let otherOrgOnlyUserId:number;
     try {
       otherOrganizationId = Number(tenantDb.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
       const adminId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='admin@demo.local'").get() as {id:number}).id);
@@ -186,6 +187,11 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
       otherStudentId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='student.sara@demo.local'").get() as {id:number}).id);
       tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'student',1)")
         .run(otherOrganizationId,otherStudentId);
+      const adminHash=(tenantDb.prepare("SELECT password_hash FROM users WHERE id=?").get(adminId) as {password_hash:string}).password_hash;
+      otherOrgOnlyUserId=Number(tenantDb.prepare("INSERT INTO users(email,display_name,password_hash,role) VALUES(?,?,?,'student')")
+        .run('only-other-school@demo.local','Only Other School',adminHash).lastInsertRowid);
+      tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'student',1)")
+        .run(otherOrganizationId,otherOrgOnlyUserId);
       tenantDb.prepare('INSERT INTO class_students(class_id,student_id,organization_id) VALUES(?,?,?)')
         .run(otherClassId,otherStudentId,otherOrganizationId);
       otherSubmissionId = Number(tenantDb.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size,organization_id)
@@ -227,7 +233,7 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     assert.equal((await request(`/api/submissions/${otherSubmissionId}/feedback`,{method:'POST',cookie:admin,body:{
       comments:'Cross-tenant feedback',grade:'1',
     }})).status,404);
-    assert.equal((await request(`/api/admin/users/${otherStudentId}`,{method:'PATCH',cookie:admin,body:{active:false}})).status,404,
+    assert.equal((await request(`/api/admin/users/${otherOrgOnlyUserId}`,{method:'PATCH',cookie:admin,body:{active:false}})).status,404,
       'an administrator cannot manage a user outside the active organisation');
     assert.equal((await request(`/api/classes/${otherClassId}/students`,{cookie:admin})).status,404,
       'a class from another organisation must not be discoverable by its numeric ID');
