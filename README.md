@@ -80,7 +80,7 @@ The first start seeds these demo accounts and sample classes/assignments only wh
 
 ## Important: demo, not production
 
-This is a functional prototype, not an approved school service. It has not had a security audit, accessibility review, load test or AVG/privacy assessment. File validation currently relies on file extensions, and the demo does not yet include production-grade rate limiting, malware scanning, retention policies, backups, CSRF hardening, monitoring or deployment configuration. Use synthetic data only. Do not upload real student work or personal data.
+This is a functional prototype for ICT demonstration, not an approved school service. Security Phase 1 adds automated authorization/session/CSRF checks, upload signature validation, safer downloads, browser security headers and a dependency audit. The current dependency audit reports no known vulnerabilities, and CI runs the automated tests, type checks and frontend build. These checks are not an independent penetration test or an accessibility, load or AVG/privacy assessment. Malware scanning, production backup/recovery, retention, monitoring and deployment readiness still require review. Use only the local demo accounts and synthetic data; do not upload real student work or personal data.
 
 Before any real deployment, involve ICT/security/privacy stakeholders and complete a security and privacy review. Set a strong `JWT_SECRET` (at least 32 characters) and `NODE_ENV=production`; production startup refuses a missing/weak JWT secret. Configure HTTPS, secure file storage, backup/restore, logging, malware scanning, rate limiting and retention before accepting real data.
 
