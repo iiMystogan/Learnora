@@ -557,11 +557,17 @@ app.delete('/api/assignments/:id',authenticate,requireRole('teacher','admin'),(r
   const id=parsePositiveId(req.params.id);
   if(id===null) return res.status(400).json({error:'Ongeldig opdrachtnummer.'});
   if(!canDeleteAssignment(db,req.user,id)) return res.status(404).json({error:'Opdracht niet gevonden.'});
+  const storedFiles=db.prepare('SELECT stored_filename FROM submissions WHERE assignment_id=?').all(id) as Array<{stored_filename:string}>;
   const deleteAssignment=db.transaction(()=>{
     db.prepare('DELETE FROM assignments WHERE id=?').run(id);
     audit(req.user.id,'assignment.deleted','assignment',id);
   });
   deleteAssignment();
+  // Remove physical files only after the database delete and audit commit succeed.
+  for(const row of storedFiles){
+    if(path.basename(row.stored_filename)!==row.stored_filename) continue;
+    try{fs.unlinkSync(path.join(uploadDir,row.stored_filename));}catch{}
+  }
   res.json({success:true});
 });
 
