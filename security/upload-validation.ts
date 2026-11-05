@@ -12,9 +12,22 @@ const LEGACY_WORD_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0
  * Checks that the uploaded file's leading bytes match its allowed extension.
  * This is a lightweight format check, not malware scanning or full document validation.
  */
-export function validateSubmissionFile(filePath: string, originalFilename: string): boolean {
+const ALLOWED_MIME_TYPES: Record<string, string[]> = {
+  '.pdf': ['application/pdf'],
+  '.doc': ['application/msword'],
+  '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  '.zip': ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'],
+};
+
+/**
+ * Checks that the declared MIME type and leading bytes match the allowed extension.
+ * MIME is user-supplied metadata; the byte signature remains the content check.
+ */
+export function validateSubmissionFile(filePath: string, originalFilename: string, mimeType: string): boolean {
   const extension = path.extname(originalFilename).toLowerCase();
-  if (!['.pdf', '.doc', '.docx', '.zip'].includes(extension)) return false;
+  if (!ALLOWED_MIME_TYPES[extension]) return false;
+  const normalizedMimeType = mimeType.toLowerCase().split(';', 1)[0].trim();
+  if (!ALLOWED_MIME_TYPES[extension].includes(normalizedMimeType)) return false;
 
   let descriptor: number | undefined;
   try {
