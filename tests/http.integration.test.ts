@@ -175,10 +175,19 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
     let otherSubmissionId:number;
     let otherStudentId:number;
     let otherOrgOnlyUserId:number;
+    let otherTeacherId:number;
+    let primaryClassId:number;
+    let primaryAssignmentId:number;
     try {
       otherOrganizationId = Number(tenantDb.prepare("INSERT INTO organizations(slug,display_name) VALUES('other-school','Other School')").run().lastInsertRowid);
       const adminId = Number((tenantDb.prepare("SELECT id FROM users WHERE email='admin@demo.local'").get() as {id:number}).id);
       tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'org_admin',1)").run(otherOrganizationId,adminId);
+      otherTeacherId=Number((tenantDb.prepare("SELECT id FROM users WHERE email='docent.visser@demo.local'").get() as {id:number}).id);
+      tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'teacher',1)")
+        .run(otherOrganizationId,otherTeacherId);
+      primaryClassId=Number((tenantDb.prepare("SELECT id FROM classes WHERE name='ICT 2A'").get() as {id:number}).id);
+      primaryAssignmentId=Number((tenantDb.prepare('SELECT id FROM assignments WHERE organization_id=? ORDER BY id LIMIT 1')
+        .get(currentUserData.user.organizationId) as {id:number}).id);
       otherClassId = Number(tenantDb.prepare('INSERT INTO classes(name,organization_id) VALUES(?,?)').run('Other School Class',otherOrganizationId).lastInsertRowid);
       otherAssignmentId = Number(tenantDb.prepare('INSERT INTO assignments(title,created_by,organization_id) VALUES(?,?,?)')
         .run('Other School Assignment',adminId,otherOrganizationId).lastInsertRowid);
@@ -192,6 +201,8 @@ test('HTTP authorization boundaries for admin, teachers and students', async () 
         .run('only-other-school@demo.local','Only Other School',adminHash).lastInsertRowid);
       tenantDb.prepare("INSERT INTO organization_memberships(organization_id,user_id,role,active) VALUES(?,?,'student',1)")
         .run(otherOrganizationId,otherOrgOnlyUserId);
+      tenantDb.prepare('INSERT INTO class_teachers(class_id,teacher_id,organization_id) VALUES(?,?,?)')
+        .run(otherClassId,otherTeacherId,otherOrganizationId);
       tenantDb.prepare('INSERT INTO class_students(class_id,student_id,organization_id) VALUES(?,?,?)')
         .run(otherClassId,otherStudentId,otherOrganizationId);
       otherSubmissionId = Number(tenantDb.prepare(`INSERT INTO submissions(assignment_id,student_id,original_filename,stored_filename,file_size,organization_id)
